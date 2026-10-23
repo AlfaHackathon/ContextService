@@ -139,4 +139,15 @@ PostgreSQL использует параметризованные SQL из `.re
 
 Совместимые `/internal/companies`, `/internal/groups`, `/internal/roles`, `/internal/people` передают запросы в CompanyService `/company-service/internal/knowledge/*`. Проверка версий, раскрытие групп и read grants выполняются владельцем. Новые клиенты обращаются к CompanyService напрямую. ContextService сохраняет материалы и их evidence; `/internal/changes?after=` выдаёт только журнал материалов.
 
+`POST /internal/news/admit` принимает событие `{source,externalId,title,text,publishedAt}` с optional
+`knownAt`, `correctsVersionId`, `textCompleteness` (по умолчанию `lead`) и `sourceUrl`.
+ContextService определяет прежние SHA-идентификаторы публикации/версии и возвращает
+`{newsMaterialId,newsVersionId,asOf,textCompleteness}`. Повтор и конкурирующая доставка используют
+сохранённый первый `knownAt`. Для совместимости идентичности хешируется исходная строка `publishedAt`
+и точный JSON.stringify-эквивалент строк, без замены Unicode/HTML на другие escape-последовательности.
+`POST /internal/news/resolve` с `{newsMaterialId,newsVersionId,asOf}` возвращает публичный оригинал
+новости, известный на срез, или 422. `POST /internal/news/public-sources` с `{sourceRefs,asOf}`
+возвращает `{materials}` для максимум 64 публичных market-оригиналов после проверки hash/knownAt/scope.
+Размер модельного контекста, окна и source-coverage остаются ответственностью AgentService.
+
 Material version может включать optional `provenance={acquisition,sourceUrl,retrievedAt,textCompleteness,originVersionId,locator}`. Acquisition: `uploaded`, `event_payload`, `news_service`; полнота: `full`, `lead`, `excerpt`, `unknown`. Для загруженного локального PDF укажите uploaded/excerpt и страницу/OCR в locator: это не результат интернет-поиска. RetrievedAt не может быть позже knownAt; ссылка допускает только HTTP(S) без credentials. Для news_service требуется тот же originVersionId, что и versionId проекции; оригинальные версии не перенумеровываются ContextService. Получение таких оригиналов требует реального upstream контракта — существующий parser его пока не предоставляет. Исторические записи без provenance остаются без него; null не меняет старый canonical hash. Изменение метаданных существующей версии запрещено как изменение текста.

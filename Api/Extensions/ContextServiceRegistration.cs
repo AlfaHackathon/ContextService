@@ -39,6 +39,8 @@ public static class ContextServiceRegistration
         services.AddSingleton(sp => new MaterialService(sp.GetRequiredService<IMaterialRepository>(),
             configuration.GetValue<int?>("Context:MaxCharacters") ?? 120000));
         services.AddSingleton<IMaterialService>(sp => sp.GetRequiredService<MaterialService>());
+        services.AddSingleton<NewsAdmissionService>();
+        services.AddSingleton<NewsContextService>();
         services.AddAlfaHttpClient(new CompanyHttpSettings
         {
             BaseAddress = string.IsNullOrWhiteSpace(configuration["CompanyService:BaseUrl"]) ? "" : RetrievalClient.SafeUri(configuration["CompanyService:BaseUrl"]!.TrimEnd('/') + "/").ToString(),
