@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Api/ContextService.Api.csproj" />
+  <Project Path="Tests/ContextService.Tests.csproj" />
+</Solution>
