@@ -1,5 +1,6 @@
 using AlfaHackaton.DapperContext.Common.Interfaces.Dapper;
 using AlfaHackaton.DapperContext.Dapper;
+using AlfaHackaton.Result;
 using ContextService.Contracts.Companies;
 using ContextService.Models;
 using ContextService.Resources;
@@ -9,11 +10,12 @@ namespace ContextService.Repositories;
 public sealed class CompanyEvidenceRepository(IDapperContext context)
 {
     private sealed record EvidenceRow(string MaterialId, string VersionId, string ContentHash, string SourceId, long KnownTicks);
-    public async Task<CompanyEvidenceInventory> CompanyEvidence(Guid companyId, DateTimeOffset asOf)
+    public async Task<Result<CompanyEvidenceInventory>> CompanyEvidence(Guid companyId, DateTimeOffset asOf)
     {
-        if (companyId == Guid.Empty || asOf == default)
+        if (companyId == Guid.Empty ||
+            asOf == default)
         {
-            throw new ApiException(400, "invalid_evidence_scope", "A company and knowledge time are required.");
+            return new(new ApiError(400, "invalid_evidence_scope", "A company and knowledge time are required."));
         }
 
         using var transaction = context.BeginTransaction();
@@ -26,14 +28,18 @@ public sealed class CompanyEvidenceRepository(IDapperContext context)
             observed = sequence,
             at = asOf.UtcTicks
         }));
-        var rows = await transaction.ListOrEmpty<EvidenceRow>(new QueryObject(ContextSql.CompanyEvidence,
-            new
-            {
-                at = asOf.UtcTicks,
-                company = companyId.ToString("D")
-            }));
+        var rows = await transaction.ListOrEmpty<EvidenceRow>(new QueryObject(ContextSql.CompanyEvidence, new
+        {
+            at = asOf.UtcTicks,
+            company = companyId.ToString("D")
+        }));
         transaction.Commit();
-        return new(companyId, asOf.ToUniversalTime(), rows.Take(128).Select(row => new CompanyEvidenceSource(row.MaterialId,
-            row.VersionId, row.ContentHash, row.SourceId, new DateTimeOffset(row.KnownTicks, TimeSpan.Zero))).ToArray(), rows.Count <= 128, sequence, watchAfter);
+        return new(new(companyId,
+            asOf.ToUniversalTime(),
+            rows.Take(128).Select(row => new CompanyEvidenceSource(row.MaterialId, row.VersionId, row.ContentHash, row.SourceId, new DateTimeOffset(row.KnownTicks, TimeSpan.Zero))).ToArray(),
+            rows.Count <= 128,
+            sequence,
+            watchAfter),
+            null);
     }
 }

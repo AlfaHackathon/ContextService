@@ -23,12 +23,13 @@ public sealed class SearchProjectionRepository(IDapperContext context)
         await transaction.Command(new QueryObject(ContextSql.WriteLock));
         foreach (var entry in entries)
         {
-            await transaction.Command(new QueryObject(ContextSql.UpsertProjectionMark, new
-            {
-                p = pipeline,
-                i = entry.Key,
-                h = entry.Value
-            }));
+            await transaction.Command(new QueryObject(ContextSql.UpsertProjectionMark,
+                new
+                {
+                    p = pipeline,
+                    i = entry.Key,
+                    h = entry.Value
+                }));
         }
 
         transaction.Commit();

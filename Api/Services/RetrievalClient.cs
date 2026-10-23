@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AlfaHackaton.Result;
 using ContextService.Models;
 using ContextService.Settings;
 
@@ -17,6 +18,7 @@ public sealed class RetrievalClient
     public RetrievalTransport<InferenceHttpSettings> Inference => inference;
     public string Collection => collection;
     public bool Dense => !string.IsNullOrWhiteSpace(config["Embeddings:BaseUrl"]);
+
     public RetrievalClient(RetrievalTransport<QdrantHttpSettings> qdrant, RetrievalTransport<InferenceHttpSettings> inference, IConfiguration config)
     {
         this.config = config;
@@ -29,50 +31,80 @@ public sealed class RetrievalClient
         }
     }
 
-    public async Task Ensure(CancellationToken ct)
+    public async Task<Result> Ensure(CancellationToken ct)
     {
         if (initialized)
         {
-            return;
+            return new();
         }
 
         using var check = await qdrant.GetAsync($"collections/{collection}", ct);
         if (check.StatusCode == HttpStatusCode.NotFound)
         {
             var dimensions = config.GetValue<int?>("Embeddings:Dimensions") ?? 384;
-            object vectors = Dense ? new Dictionary<string, object> { ["dense"] = new { size = dimensions, distance = "Cosine" } } : new
+            object vectors = Dense ? new Dictionary<string, object>
+            {
+                ["dense"] = new
+                {
+                    size = dimensions,
+                    distance = "Cosine"
+                }
+            }
+
+            : new
             {
             };
-            using var created = await qdrant.PutAsJsonAsync($"collections/{collection}", new
-            {
-                vectors,
-                sparse_vectors = new
+            using var created = await qdrant.PutAsJsonAsync($"collections/{collection}",
+                new
                 {
-                    lexical = new
+                    vectors,
+                    sparse_vectors = new
                     {
-                        modifier = "idf"
+                        lexical = new
+                        {
+                            modifier = "idf"
+                        }
                     }
-                }
-            }, ct);
-            RequireSuccess(created);
-            foreach (var key in new[] { "kind", "companyIds" })
+                },
+                ct);
+            if (RequireSuccess(created).Error is { } responseError)
             {
-                using var indexed = await qdrant.PutAsJsonAsync($"collections/{collection}/index?wait=true", new
+                return new(responseError);
+            }
+            foreach (var key in new[]
+            {
+                "kind",
+                "companyIds"
+            }
+
+            )
+            {
+                using var indexed = await qdrant.PutAsJsonAsync($"collections/{collection}/index?wait=true",
+                    new
+                    {
+                        field_name = key,
+                        field_schema = "keyword"
+                    },
+                    ct);
+                if (RequireSuccess(indexed).Error is { } responseError2)
                 {
-                    field_name = key,
-                    field_schema = "keyword"
-                }, ct);
-                RequireSuccess(indexed);
+                    return new(responseError2);
+                }
             }
         }
         else
         {
-            RequireSuccess(check);
+            if (RequireSuccess(check).Error is { } responseError3)
+            {
+                return new(responseError3);
+            }
         }
 
         initialized = true;
+        return new();
     }
-    public async Task<float[][]> Embed(string[] texts, CancellationToken ct, bool query = false)
+
+    public async Task<Result<float[][]>> Embed(string[] texts, CancellationToken ct, bool query = false)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, SafeUri(config["Embeddings:BaseUrl"]!.TrimEnd('/') + "/embeddings"));
         if (!string.IsNullOrWhiteSpace(config["Embeddings:ApiKey"]))
@@ -87,34 +119,46 @@ public sealed class RetrievalClient
             input = texts.Select(t => prefix + t).ToArray()
         });
         using var response = await inference.SendAsync(request, ct);
-        RequireSuccess(response);
+        if (RequireSuccess(response).Error is { } responseError4)
+        {
+            return new(responseError4);
+        }
         using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
         var rows = json.RootElement.GetProperty("data").EnumerateArray().OrderBy(x => x.GetProperty("index").GetInt32()).ToArray();
         var values = rows.Select(x => x.GetProperty("embedding").EnumerateArray().Select(v => v.GetSingle()).ToArray()).ToArray();
         var dimensions = config.GetValue<int?>("Embeddings:Dimensions") ?? 384;
-        if (values.Length != texts.Length || rows.Where((x, i) => x.GetProperty("index").GetInt32() != i).Any()
-            || values.Any(x => x.Length != dimensions || x.Any(v => !float.IsFinite(v))))
+        if (values.Length != texts.Length ||
+            rows.Where((x, i) => x.GetProperty("index").GetInt32() != i).Any() ||
+            values.Any(x => x.Length != dimensions ||
+                x.Any(v => !float.IsFinite(v))))
         {
-            throw new ApiException(502, "invalid_embeddings", "Embedding count, indices, dimensions or values do not match the configured model.");
+            return new(new ApiError(502, "invalid_embeddings", "Embedding count, indices, dimensions or values do not match the configured model."));
         }
 
-        return values;
+        return new(values, null);
     }
+
     public static Uri SafeUri(string value)
     {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")
-            || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0)
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+            uri.Scheme is not ("http" or "https") ||
+            uri.UserInfo.Length > 0 ||
+            uri.Query.Length > 0 ||
+            uri.Fragment.Length > 0)
         {
             throw new InvalidOperationException("Retrieval endpoints require HTTP(S) URLs without embedded credentials, query or fragment.");
         }
 
         return uri;
     }
-    public static void RequireSuccess(HttpResponseMessage response)
+
+    public static Result RequireSuccess(HttpResponseMessage response)
     {
         if (!response.IsSuccessStatusCode)
         {
-            throw new ApiException(503, "retrieval_upstream_unavailable", $"Retrieval upstream returned HTTP {(int)response.StatusCode}; no empty success is implied.");
+            return new(new ApiError(503, "retrieval_upstream_unavailable", $"Retrieval upstream returned HTTP {(int)response.StatusCode}; no empty success is implied."));
         }
+
+        return new();
     }
 }

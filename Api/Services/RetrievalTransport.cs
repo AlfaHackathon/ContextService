@@ -18,7 +18,9 @@ public sealed class RetrievalTransport<TSettings>(IHttpClient<TSettings> client,
         Send(HttpMethod.Post, uri, JsonSerializer.SerializeToUtf8Bytes(body, ContextJson.Options), null, ct);
     public Task<HttpResponseMessage> PostAsJsonAsync<T>(Uri uri, T body, CancellationToken ct) => PostAsJsonAsync(uri.ToString(), body, ct);
     public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
-        await Send(request.Method, request.RequestUri!.ToString(), request.Content is null ? null : await request.Content.ReadAsByteArrayAsync(ct),
+        await Send(request.Method,
+            request.RequestUri!.ToString(),
+            request.Content is null ? null : await request.Content.ReadAsByteArrayAsync(ct),
             (headers, contentHeaders) =>
             {
                 foreach (var header in request.Headers)
@@ -26,7 +28,8 @@ public sealed class RetrievalTransport<TSettings>(IHttpClient<TSettings> client,
                     headers.TryAddWithoutValidation(header.Key, header.Value);
                 }
 
-                if (request.Content is not null && contentHeaders is not null)
+                if (request.Content is not null &&
+                    contentHeaders is not null)
                 {
                     foreach (var header in request.Content.Headers)
                     {
@@ -34,7 +37,8 @@ public sealed class RetrievalTransport<TSettings>(IHttpClient<TSettings> client,
                         contentHeaders.TryAddWithoutValidation(header.Key, header.Value);
                     }
                 }
-            }, ct);
+            },
+            ct);
     private async Task<HttpResponseMessage> Send(HttpMethod method, string uri, byte[]? body, HeaderApplier? headers, CancellationToken ct)
     {
         var result = await client.Send<None, None>(new Request<None>
@@ -44,14 +48,16 @@ public sealed class RetrievalTransport<TSettings>(IHttpClient<TSettings> client,
             RawData = body,
             HeadersApplier = (requestHeaders, contentHeaders) =>
             {
-                if (body is not null && contentHeaders is not null)
+                if (body is not null &&
+                    contentHeaders is not null)
                 {
                     contentHeaders.ContentType = new("application/json");
                 }
 
                 headers?.Invoke(requestHeaders, contentHeaders);
             }
-        }, ct);
+        },
+            ct);
         return new HttpResponseMessage(result.Status) { Content = new ByteArrayContent(result.RawData) };
     }
 }

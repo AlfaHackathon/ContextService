@@ -1,4 +1,3 @@
-using AlfaHackaton.Controllers.Controllers;
 using ContextService.Contracts.Companies;
 using ContextService.Contracts.Materials;
 using ContextService.Contracts.Retrieval;
@@ -11,7 +10,7 @@ namespace ContextService.Controllers;
 
 [ApiController]
 [Route("context-service/internal")]
-public sealed class MaterialsController(IMaterialService materials, RetrievedContextService retrieved) : BaseController
+public sealed class MaterialsController(IMaterialService materials, RetrievedContextService retrieved) : ApiControllerBase
 {
     [HttpPost("material-versions")]
     public async Task<IActionResult> Save([FromBody] MaterialVersionRequest request) => OkOrProblem<MaterialVersion>(await materials.Save(request));

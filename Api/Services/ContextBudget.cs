@@ -1,5 +1,6 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using AlfaHackaton.Result;
 using ContextService.Common;
 using ContextService.Contracts.Knowledge;
 using ContextService.Contracts.Materials;
@@ -15,28 +16,18 @@ public static class ContextBudget
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
-
-    public static int Measure(MaterialVersion news, IEnumerable<MaterialVersion> documents) =>
-        JsonSerializer.Serialize(new
-        {
-            news,
-            materials = documents.ToArray()
-        }, DecodedJson).Length;
-
-    public static BudgetedMaterials Pack(MaterialVersion news, MaterialVersion[] candidates,
-        ISet<string> requiredMaterialIds, IReadOnlyDictionary<string, double> ranks, int maximum)
+    public static int Measure(MaterialVersion news, IEnumerable<MaterialVersion> documents) => JsonSerializer.Serialize(new { news, materials = documents.ToArray() }, DecodedJson).Length;
+    public static Result<BudgetedMaterials> Pack(MaterialVersion news, MaterialVersion[] candidates, ISet<string> requiredMaterialIds, IReadOnlyDictionary<string, double> ranks, int maximum)
     {
         var groups = candidates.GroupBy(m => m.MaterialId).ToArray();
         var kept = groups.Where(g => requiredMaterialIds.Contains(g.Key)).SelectMany(g => g).ToList();
         if (Measure(news, kept) > maximum)
         {
-            throw new ApiException(422, "mandatory_context_budget_exceeded",
-                "The news and mandatory complete originals exceed the context budget; no source was truncated or substituted.");
+            return new(new ApiError(422, "mandatory_context_budget_exceeded", "The news and mandatory complete originals exceed the context budget; no source was truncated or substituted."));
         }
 
         var omitted = new List<SourceReference>();
-        foreach (var group in groups.Where(g => !requiredMaterialIds.Contains(g.Key))
-            .OrderByDescending(g => ranks.GetValueOrDefault(g.Key)).ThenBy(g => g.Key, StringComparer.Ordinal))
+        foreach (var group in groups.Where(g => !requiredMaterialIds.Contains(g.Key)).OrderByDescending(g => ranks.GetValueOrDefault(g.Key)).ThenBy(g => g.Key, StringComparer.Ordinal))
         {
             // Old hit, correction and equal-time forks travel together, or are all omitted.
             if (Measure(news, kept.Concat(group)) <= maximum)
@@ -48,7 +39,7 @@ public static class ContextBudget
                 omitted.AddRange(group.Select(m => new SourceReference(m.MaterialId, m.VersionId, m.ContentHash)));
             }
         }
-        return new(kept.ToArray(), new(maximum, Measure(news, kept), omitted.ToArray(),
-            omitted.Count == 0 ? "within_budget" : "context_budget"));
+
+        return new(new(kept.ToArray(), new(maximum, Measure(news, kept), omitted.ToArray(), omitted.Count == 0 ? "within_budget" : "context_budget")), null);
     }
 }

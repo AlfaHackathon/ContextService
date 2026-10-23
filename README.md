@@ -23,9 +23,14 @@ Contracts/Common/Resources и не зависят от application-сервис�
 PostgreSQL хранит канонические версии; Qdrant остаётся перестраиваемой поисковой базой. SQLite fallback отсутствует.
 
 Реально используются NuGet `AlfaHackaton.Controllers` 1.4.0, `AlfaHackaton.DapperContext` 1.2.0,
-`AlfaHackaton.HttpClient` 1.1.1 и транзитивный `AlfaHackaton.Result`: controller success проходит
+`AlfaHackaton.HttpClient` 1.1.1 и явно подключённый `AlfaHackaton.Result` 1.0.0: controller success проходит
 через `BaseController.OkOrProblem`, persistence через `IDapperContext`, Qdrant/inference HTTP через
 `IHttpClient<TSettings>.Send`. Raw JSON bytes сохраняют прежние System.Text.Json контракты.
+Ожидаемые ошибки валидации, бизнес-правил и конфликтов возвращаются через пакетные
+`Result<T>`/`Result` и `return new(error)`. `ApiError` наследует пакетный `Error`, добавляя
+machine code и HTTP status; локальный `ApiControllerBase` сохраняет `{code,message}` и статусы.
+Ранний возврат ошибки оставляет транзакцию без commit, и disposal откатывает изменения.
+Middleware обрабатывает authentication, ошибки HTTP/БД и неожиданные исключения.
 Настройка `ConnectionStrings__DefaultConnection` обязательна; приложение применяет миграции
 до приёма HTTP. База должна быть отдельной для ContextService.
 

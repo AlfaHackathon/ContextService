@@ -1,3 +1,4 @@
+using AlfaHackaton.Result;
 using ContextService.Common;
 using ContextService.Contracts.Knowledge;
 using ContextService.Models;
@@ -7,138 +8,207 @@ namespace ContextService.Services;
 
 public sealed class KnowledgeService(KnowledgeStore store, MaterialService materials)
 {
-    public async Task<CompanyProfile> SaveCompany(CompanyProfile p)
+    public async Task<Result<CompanyProfile>> SaveCompany(CompanyProfile p)
     {
-        if (p.CompanyId == Guid.Empty || string.IsNullOrWhiteSpace(p.Name) || string.IsNullOrWhiteSpace(p.Description)
-            || p.IndustryCodes is null || p.Exposures is null || p.Description.Length > 16000)
+        if (p.CompanyId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(p.Name) ||
+            string.IsNullOrWhiteSpace(p.Description) ||
+            p.IndustryCodes is null ||
+            p.Exposures is null ||
+            p.Description.Length > 16000)
         {
-            throw new ApiException(400, "invalid_company_profile", "Company identity, name, bounded description and feature arrays are required.");
+            return new(new ApiError(400, "invalid_company_profile", "Company identity, name, bounded description and feature arrays are required."));
         }
 
-        await Validate(p.RevisionId, p.KnownAt, p.SourceRefs, p.CompanyId);
+        if ((await Validate(p.RevisionId, p.KnownAt, p.SourceRefs, p.CompanyId)).Error is { } companyEvidenceError)
+        {
+            return new(companyEvidenceError);
+        }
         return await store.Save("company", p.CompanyId.ToString("D"), p.RevisionId, p.KnownAt, p with
         {
             KnownAt = p.KnownAt.ToUniversalTime()
         });
     }
-    public async Task<GroupProfile> SaveGroup(GroupProfile p)
+
+    public async Task<Result<GroupProfile>> SaveGroup(GroupProfile p)
     {
-        IdentifierValidation.RequireId(p.GroupId, "groupId");
-        if (string.IsNullOrWhiteSpace(p.Name) || p.Members is null || p.Members.Length > 512)
+        if (IdentifierValidation.RequireId(p.GroupId, "groupId").Error is { } groupIdError)
         {
-            throw new ApiException(400, "invalid_group", "A group requires a name and at most 512 explicit members.");
+            return new(groupIdError);
+        }
+        if (string.IsNullOrWhiteSpace(p.Name) ||
+            p.Members is null ||
+            p.Members.Length > 512)
+        {
+            return new(new ApiError(400, "invalid_group", "A group requires a name and at most 512 explicit members."));
         }
 
-        await Validate(p.RevisionId, p.KnownAt, p.SourceRefs);
+        if ((await Validate(p.RevisionId, p.KnownAt, p.SourceRefs)).Error is { } groupEvidenceError)
+        {
+            return new(groupEvidenceError);
+        }
         if (p.AggregationRule is not (null or "sum_compatible_owner_effects"))
         {
-            throw new ApiException(400, "invalid_aggregation_rule", "Only an explicitly sourced sum_compatible_owner_effects rule is supported.");
+            return new(new ApiError(400, "invalid_aggregation_rule", "Only an explicitly sourced sum_compatible_owner_effects rule is supported."));
         }
 
         var keys = new HashSet<string>();
         foreach (var member in p.Members)
         {
-            if (member is null || member.Kind is not ("company" or "group"))
+            if (member is null ||
+                member.Kind is not ("company" or "group"))
             {
-                throw new ApiException(400, "invalid_group_member", "Each member must identify a company or a nested group.");
+                return new(new ApiError(400, "invalid_group_member", "Each member must identify a company or a nested group."));
             }
 
-            IdentifierValidation.RequireId(member.Id, "member id");
-            if (member.Kind == "company" && (!Guid.TryParse(member.Id, out var id) || id == Guid.Empty))
+            if (IdentifierValidation.RequireId(member.Id, "member id").Error is { } memberIdError)
             {
-                throw new ApiException(400, "invalid_company", "Company members use application Guids.");
+                return new(memberIdError);
+            }
+            if (member.Kind == "company" &&
+                (!Guid.TryParse(member.Id, out var id) ||
+                    id == Guid.Empty))
+            {
+                return new(new ApiError(400, "invalid_company", "Company members use application Guids."));
             }
 
             if (!keys.Add(member.Kind + ":" + member.Id.ToLowerInvariant()))
             {
-                throw new ApiException(400, "duplicate_group_member", "A direct group edge may occur only once.");
+                return new(new ApiError(400, "duplicate_group_member", "A direct group edge may occur only once."));
             }
 
-            await Validate(p.RevisionId, p.KnownAt, member.SourceRefs);
+            if ((await Validate(p.RevisionId, p.KnownAt, member.SourceRefs)).Error is { } memberEvidenceError)
+            {
+                return new(memberEvidenceError);
+            }
         }
+
         return await store.Save("group", p.GroupId, p.RevisionId, p.KnownAt, p with
         {
             KnownAt = p.KnownAt.ToUniversalTime()
         });
     }
-    public async Task<RoleProfile> SaveRole(RoleProfile p)
+
+    public async Task<Result<RoleProfile>> SaveRole(RoleProfile p)
     {
-        IdentifierValidation.RequireId(p.PersonId, "personId");
-        if (p.CompanyId == Guid.Empty || string.IsNullOrWhiteSpace(p.Role) || p.Responsibilities is null
-            || p.AllowedCompanyIds is null || p.AllowedMaterialIds is null
-            || !p.AllowedCompanyIds.Contains(p.CompanyId) || p.AllowedCompanyIds.Contains(Guid.Empty)
-            || p.AllowedCompanyIds.Length > 512 || p.AllowedMaterialIds.Length > 2048)
+        if (IdentifierValidation.RequireId(p.PersonId, "personId").Error is { } personIdError)
         {
-            throw new ApiException(400, "invalid_role", "An explicit role, responsibilities and bounded read grant including its company are required.");
+            return new(personIdError);
+        }
+        if (p.CompanyId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(p.Role) ||
+            p.Responsibilities is null ||
+            p.AllowedCompanyIds is null ||
+            p.AllowedMaterialIds is null ||
+            !p.AllowedCompanyIds.Contains(p.CompanyId) ||
+            p.AllowedCompanyIds.Contains(Guid.Empty) ||
+            p.AllowedCompanyIds.Length > 512 ||
+            p.AllowedMaterialIds.Length > 2048)
+        {
+            return new(new ApiError(400, "invalid_role", "An explicit role, responsibilities and bounded read grant including its company are required."));
         }
 
         foreach (var id in p.AllowedMaterialIds)
         {
-            IdentifierValidation.RequireId(id, "allowedMaterialId");
-        }
-
-        await Validate(p.RevisionId, p.KnownAt, p.SourceRefs, p.CompanyId);
-        return await store.Save("role", p.PersonId + ":" + p.CompanyId.ToString("D"), p.RevisionId, p.KnownAt,
-            p with
+            if (IdentifierValidation.RequireId(id, "allowedMaterialId").Error is { } allowedMaterialIdError)
             {
-                KnownAt = p.KnownAt.ToUniversalTime()
-            });
-    }
-    public async Task<PersonProfile> SavePerson(PersonProfile p)
-    {
-        IdentifierValidation.RequireId(p.PersonId, "personId");
-        if (p.CompanyLinks is null || p.CompanyLinks.Length > 512)
-        {
-            throw new ApiException(400, "invalid_person_links", "A person requires an explicit bounded links array.");
+                return new(allowedMaterialIdError);
+            }
         }
 
-        await Validate(p.RevisionId, p.KnownAt, p.SourceRefs);
+        if ((await Validate(p.RevisionId, p.KnownAt, p.SourceRefs, p.CompanyId)).Error is { } bankEvidenceError)
+        {
+            return new(bankEvidenceError);
+        }
+        return await store.Save("role", p.PersonId + ":" + p.CompanyId.ToString("D"), p.RevisionId, p.KnownAt, p with
+        {
+            KnownAt = p.KnownAt.ToUniversalTime()
+        });
+    }
+
+    public async Task<Result<PersonProfile>> SavePerson(PersonProfile p)
+    {
+        if (IdentifierValidation.RequireId(p.PersonId, "personId").Error is { } personIdError2)
+        {
+            return new(personIdError2);
+        }
+        if (p.CompanyLinks is null ||
+            p.CompanyLinks.Length > 512)
+        {
+            return new(new ApiError(400, "invalid_person_links", "A person requires an explicit bounded links array."));
+        }
+
+        if ((await Validate(p.RevisionId, p.KnownAt, p.SourceRefs)).Error is { } personEvidenceError)
+        {
+            return new(personEvidenceError);
+        }
         foreach (var link in p.CompanyLinks)
         {
-            if (link.CompanyId == Guid.Empty || link.RelationKind is not ("unspecified" or "employee" or "representative" or "owner"))
+            if (link.CompanyId == Guid.Empty ||
+                link.RelationKind is not ("unspecified" or "employee" or "representative" or "owner"))
             {
-                throw new ApiException(400, "invalid_person_link", "A link requires an application company ID and an explicit relation kind.");
+                return new(new ApiError(400, "invalid_person_link", "A link requires an application company ID and an explicit relation kind."));
             }
 
-            await Validate(p.RevisionId, p.KnownAt, link.SourceRefs, link.CompanyId);
+            if ((await Validate(p.RevisionId, p.KnownAt, link.SourceRefs, link.CompanyId)).Error is { } linkEvidenceError)
+            {
+                return new(linkEvidenceError);
+            }
         }
+
         return await store.Save("person", p.PersonId, p.RevisionId, p.KnownAt, p with
         {
             KnownAt = p.KnownAt.ToUniversalTime()
         });
     }
+
     public Task<PersonProfile[]> People(DateTimeOffset asOf) => store.List<PersonProfile>("person", asOf);
     public Task<CompanyProfile[]> Companies(DateTimeOffset asOf) => store.List<CompanyProfile>("company", asOf);
     public Task<CompanyProfile[]> CompanyVersions() => store.List<CompanyProfile>("company", DateTimeOffset.MaxValue, false);
     public Task<RoleProfile[]> Roles(DateTimeOffset asOf) => store.List<RoleProfile>("role", asOf);
     public Task<GroupProfile[]> Groups(DateTimeOffset asOf) => store.List<GroupProfile>("group", asOf);
-
-    private async Task Validate(string revision, DateTimeOffset knownAt, SourceReference[] refs, Guid? company = null)
+    private async Task<Result> Validate(string revision, DateTimeOffset knownAt, SourceReference[] refs, Guid? company = null)
     {
-        IdentifierValidation.RequireId(revision, "revisionId");
-        if (knownAt == default || refs is null || refs.Length is < 1 or > 64)
+        if (IdentifierValidation.RequireId(revision, "revisionId").Error is { } revisionIdError)
         {
-            throw new ApiException(400, "knowledge_evidence_required", "Knowledge time and 1–64 immutable source references are required.");
+            return new(revisionIdError);
+        }
+        if (knownAt == default ||
+            refs is null ||
+            refs.Length is < 1 or > 64)
+        {
+            return new(new ApiError(400, "knowledge_evidence_required", "Knowledge time and 1–64 immutable source references are required."));
         }
 
         foreach (var r in refs)
         {
             if (r is null)
             {
-                throw new ApiException(400, "invalid_source", "Source references cannot contain null.");
+                return new(new ApiError(400, "invalid_source", "Source references cannot contain null."));
             }
 
-            var source = await materials.GetAsync(r.MaterialId, r.VersionId);
-            if (source.ContentHash != r.ContentHash || source.KnownAt > knownAt)
+            var materialIdResolution = await materials.GetAsync(r.MaterialId, r.VersionId);
+            if (materialIdResolution.Error is { } materialIdResolutionError)
             {
-                throw new ApiException(422, "invalid_knowledge_evidence", "Evidence must match its original hash and be known at the profile revision.");
+                return new(materialIdResolutionError);
             }
 
-            if (company.HasValue && !source.CompanyIds.Contains(company.Value))
+            var source = materialIdResolution.Content!;
+            if (source.ContentHash != r.ContentHash ||
+                source.KnownAt > knownAt)
             {
-                throw new ApiException(422, "profile_company_scope", "Company and role evidence must explicitly belong to the target company.");
+                return new(new ApiError(422, "invalid_knowledge_evidence", "Evidence must match its original hash and be known at the profile revision."));
+            }
+
+            if (company.HasValue &&
+                !source.CompanyIds.Contains(company.Value))
+            {
+                return new(new ApiError(422, "profile_company_scope", "Company and role evidence must explicitly belong to the target company."));
             }
         }
+
+        return new();
     }
-    public async Task<GroupExpansion> Expand(string id, DateTimeOffset asOf) => GroupExpansionService.Expand(id, await Groups(asOf));
+
+    public async Task<Result<GroupExpansion>> Expand(string id, DateTimeOffset asOf) => GroupExpansionService.Expand(id, await Groups(asOf));
 }

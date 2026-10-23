@@ -3,7 +3,6 @@ using System.Text.Json;
 using ContextService.Common;
 using ContextService.Contracts.Knowledge;
 using ContextService.Contracts.Materials;
-using ContextService.Models;
 using ContextService.Repositories;
 using ContextService.Resources;
 using ContextService.Services;
@@ -32,7 +31,7 @@ public sealed class PostgresStorageTests : PostgresTestBase
     public async Task MigrationReopenPreservesCanonicalPayloadHashTicksAndIndexes()
     {
         var service = new MaterialService(Repository(), 120000);
-        var saved = await service.Save(Request);
+        var saved = await (service.Save(Request)).RequireContentAsync();
         var reopened = await Repository().GetAsync(saved.MaterialId, saved.VersionId);
         Assert.Equal(saved.ContentHash, reopened!.ContentHash);
         Assert.Equal(known.UtcTicks, reopened.KnownAt.UtcTicks);
@@ -40,7 +39,7 @@ public sealed class PostgresStorageTests : PostgresTestBase
         await using var connection = await Open();
         await using var command = new NpgsqlCommand("SELECT count(*) FROM pg_indexes WHERE schemaname=current_schema() AND indexname IN ('ix_materials_known','ix_material_companies','ix_knowledge_asof')", connection);
         Assert.Equal(3L, await command.ExecuteScalarAsync());
-        var change = Assert.Single(await new ContextChanges(Database).Read(0));
+        var change = Assert.Single(await (new ContextChanges(Database).Read(0)).RequireContentAsync());
         Assert.Equal(known.UtcTicks, change.KnownAt.UtcTicks);
     }
 
@@ -55,18 +54,17 @@ public sealed class PostgresStorageTests : PostgresTestBase
         await command.ExecuteNonQueryAsync();
         var request = Request;
         var service = new MaterialService(Repository(), 120000);
-        await Assert.ThrowsAsync<PostgresException>(() => service.Save(request));
+        await Assert.ThrowsAsync<PostgresException>(() => (service.Save(request)).RequireContentAsync());
         Assert.Null(await Repository().GetAsync("atomic", "v1"));
         command.CommandText = "SELECT count(*) FROM material_companies";
         Assert.Equal(0L, await command.ExecuteScalarAsync());
         var knowledge = new KnowledgeStore(Database);
-        await Assert.ThrowsAsync<PostgresException>(() => knowledge.Save("group", "g", "1", known,
-            new GroupProfile("g", "1", "Group", known, [], [])));
+        await Assert.ThrowsAsync<PostgresException>(() => (knowledge.Save("group", "g", "1", known, new GroupProfile("g", "1", "Group", known, [], []))).RequireContentAsync());
         Assert.Empty(await knowledge.List<GroupProfile>("group", known));
         command.CommandText = "DROP TRIGGER fail_change ON context_changes";
         await command.ExecuteNonQueryAsync();
-        Assert.Equal((await service.Save(request)).ContentHash, (await service.Save(request)).ContentHash);
-        Assert.Single(await new ContextChanges(Database).Read(0));
+        Assert.Equal((await (service.Save(request)).RequireContentAsync()).ContentHash, (await (service.Save(request)).RequireContentAsync()).ContentHash);
+        Assert.Single(await (new ContextChanges(Database).Read(0)).RequireContentAsync());
     }
 
     [Fact]
@@ -74,10 +72,10 @@ public sealed class PostgresStorageTests : PostgresTestBase
     {
         var service = new MaterialService(Repository(), 120000);
         var request = Request;
-        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => service.Save(request)));
+        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => (service.Save(request)).RequireContentAsync()));
         Assert.Single(results.Select(result => result.ContentHash).Distinct());
-        Assert.Single(await new ContextChanges(Database).Read(0));
-        var failure = await Assert.ThrowsAsync<ApiException>(() => service.Save(request with { Text = "conflict" }));
+        Assert.Single(await (new ContextChanges(Database).Read(0)).RequireContentAsync());
+        var failure = await ResultAssert.ErrorAsync(() => service.Save(request with { Text = "conflict" }));
         Assert.Equal("immutable_version_conflict", failure.Code);
     }
 
@@ -86,11 +84,11 @@ public sealed class PostgresStorageTests : PostgresTestBase
     {
         var store = new KnowledgeStore(Database);
         var first = new GroupProfile("g", "1", "Group", known, [], []);
-        await store.Save("group", "g", "1", known, first);
-        var failure = await Assert.ThrowsAsync<ApiException>(() => store.Save("group", "g", "2", known, first with { RevisionId = "2" }));
+        await (store.Save("group", "g", "1", known, first)).RequireContentAsync();
+        var failure = await ResultAssert.ErrorAsync(() => store.Save("group", "g", "2", known, first with { RevisionId = "2" }));
         Assert.Equal("knowledge_time_conflict", failure.Code);
         Assert.Equal("1", Assert.Single(await store.List<GroupProfile>("group", known)).RevisionId);
-        Assert.Single(await new ContextChanges(Database).Read(0));
+        Assert.Single(await (new ContextChanges(Database).Read(0)).RequireContentAsync());
     }
 
     [Fact]
@@ -102,6 +100,7 @@ public sealed class PostgresStorageTests : PostgresTestBase
             yield return new("first", "h1");
             throw new InvalidOperationException("Injected interrupted batch");
         }
+
         await Assert.ThrowsAsync<InvalidOperationException>(() => repository.Mark("pipeline", Interrupted()));
         Assert.Empty(await new SearchProjectionRepository(Database).Read("pipeline"));
         await repository.Mark("pipeline", [new("first", "h1"), new("second", "h2")]);

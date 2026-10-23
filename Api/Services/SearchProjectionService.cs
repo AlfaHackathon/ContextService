@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AlfaHackaton.Result;
 using ContextService.Common;
 using ContextService.Contracts.Search;
 using ContextService.Models;
@@ -15,8 +16,7 @@ public sealed class SearchProjectionService : IDisposable
     private readonly KnowledgeService knowledge;
     private readonly SearchProjectionRepository projection;
     private readonly SemaphoreSlim syncLock = new(1);
-    public SearchProjectionService(RetrievalClient client, SearchProjectionRepository projection, IConfiguration config,
-        IMaterialRepository materials, KnowledgeService knowledge)
+    public SearchProjectionService(RetrievalClient client, SearchProjectionRepository projection, IConfiguration config, IMaterialRepository materials, KnowledgeService knowledge)
     {
         this.client = client;
         this.config = config;
@@ -24,13 +24,18 @@ public sealed class SearchProjectionService : IDisposable
         this.knowledge = knowledge;
         this.projection = projection;
     }
+
     private string Pipeline => $"{client.Qdrant.BaseAddress}|{client.Collection}|sparse-v1|{config["Embeddings:Model"]}|{config["Embeddings:Dimensions"]}|{client.Dense}";
-    public async Task<SearchProjectionResult> Sync(CancellationToken ct)
+
+    public async Task<Result<SearchProjectionResult>> Sync(CancellationToken ct)
     {
         await syncLock.WaitAsync(ct);
         try
         {
-            await client.Ensure(ct);
+            if ((await client.Ensure(ct)).Error is { } initializationError)
+            {
+                return new(initializationError);
+            }
             // Canonical sources are scanned on restart; only missing/changed projection entries are sent.
             // A failed upsert never receives a durable mark and is retried by the worker.
             var entries = new List<IndexEntry>();
@@ -38,8 +43,13 @@ public sealed class SearchProjectionService : IDisposable
             {
                 entries.Add(new IndexEntry(RetrievalEncoding.Stable("profile", p.CompanyId.ToString(), p.RevisionId),
                     string.Join(' ', new[] { p.Name, p.Description }.Concat(p.IndustryCodes).Concat(p.Exposures)),
-                    p.KnownAt, [p.CompanyId], "profile", null, p.RevisionId,
-                    RetrievalEncoding.Hash(JsonSerializer.Serialize(p, ContextJson.Options)), p.SourceRefs));
+                    p.KnownAt,
+                    [p.CompanyId],
+                    "profile",
+                    null,
+                    p.RevisionId,
+                    RetrievalEncoding.Hash(JsonSerializer.Serialize(p, ContextJson.Options)),
+                    p.SourceRefs));
             }
 
             foreach (var m in (await materials.ListKnown(DateTimeOffset.MaxValue)).Where(x => x.Kind != "news"))
@@ -47,19 +57,40 @@ public sealed class SearchProjectionService : IDisposable
                 for (var start = 0; start < m.Text.Length; start += 1500)
                 {
                     var text = m.Text.Substring(start, Math.Min(1800, m.Text.Length - start));
-                    entries.Add(new IndexEntry(RetrievalEncoding.Stable("chunk", m.MaterialId, m.VersionId, start.ToString(System.Globalization.CultureInfo.InvariantCulture)), m.Title + "\n" + text,
-                        m.KnownAt, m.CompanyIds, m.Kind, m.MaterialId, m.VersionId, m.ContentHash,
+                    entries.Add(new IndexEntry(RetrievalEncoding.Stable("chunk", m.MaterialId, m.VersionId, start.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                        m.Title + "\n" + text,
+                        m.KnownAt,
+                        m.CompanyIds,
+                        m.Kind,
+                        m.MaterialId,
+                        m.VersionId,
+                        m.ContentHash,
                         [new(m.MaterialId, m.VersionId, m.ContentHash)]));
                 }
             }
+
             var marks = await projection.Read(Pipeline);
-            var changed = entries.Where(x => !marks.TryGetValue(x.Id, out var h) || h != x.Hash).ToArray();
+            var changed = entries.Where(x => !marks.TryGetValue(x.Id, out var h) ||
+                    h != x.Hash).ToArray();
             foreach (var batch in changed.Chunk(32))
             {
-                var dense = client.Dense ? await client.Embed(batch.Select(x => x.Text).ToArray(), ct) : null;
+                float[][]? dense = null;
+                if (client.Dense)
+                {
+                    var embeddings = await client.Embed(batch.Select(x => x.Text).ToArray(), ct);
+                    if (embeddings.Error is { } embeddingError)
+                    {
+                        return new(embeddingError);
+                    }
+                    dense = embeddings.Content;
+                }
+
                 var points = batch.Select((e, i) =>
                 {
-                    var vector = new Dictionary<string, object> { ["lexical"] = RetrievalEncoding.Sparse(e.Text) };
+                    var vector = new Dictionary<string, object>
+                    {
+                        ["lexical"] = RetrievalEncoding.Sparse(e.Text)
+                    };
                     if (dense is not null)
                     {
                         vector["dense"] = dense[i];
@@ -86,12 +117,19 @@ public sealed class SearchProjectionService : IDisposable
                 {
                     points
                 }, ct);
-                RetrievalClient.RequireSuccess(response);
+                if (RetrievalClient.RequireSuccess(response).Error is { } responseError)
+                {
+                    return new(responseError);
+                }
                 await projection.Mark(Pipeline, batch.Select(e => new KeyValuePair<string, string>(e.Id, e.Hash)));
             }
-            return new SearchProjectionResult(changed.Length, entries.Count, client.Dense ? "dense+lexical-rrf" : "lexical-idf", client.Collection);
+
+            return new(new SearchProjectionResult(changed.Length, entries.Count, client.Dense ? "dense+lexical-rrf" : "lexical-idf", client.Collection), null);
         }
-        finally { syncLock.Release(); }
+        finally
+        {
+            syncLock.Release();
+        }
     }
 
     public void Dispose() => syncLock.Dispose();

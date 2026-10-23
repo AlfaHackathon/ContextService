@@ -11,9 +11,7 @@ public sealed class CompanyEvidenceTests : PostgresTestBase
         var service = new MaterialService(repo, 120000);
         var at = DateTimeOffset.Parse("2026-10-23T08:00:00Z");
         var company = Guid.NewGuid();
-        async Task<MaterialVersion> Add(string id, string version, string kind, Guid[] scope, DateTimeOffset time, string? prior = null) =>
-            await service.Save(new(id, version, id == "profile" ? "provided-bank-csv" : "fixture", kind, id,
-                "Synthetic fixture original", time, time, prior, scope, []));
+        async Task<MaterialVersion> Add(string id, string version, string kind, Guid[] scope, DateTimeOffset time, string? prior = null) => await (service.Save(new(id, version, id == "profile" ? "provided-bank-csv" : "fixture", kind, id, "Synthetic fixture original", time, time, prior, scope, []))).RequireContentAsync();
         var profile = await Add("profile", "1", "company", [company], at);
         await Add("own", "old", "company", [company], at);
         var latest = await Add("own", "new", "company", [company], at.AddSeconds(1), "old");
@@ -23,7 +21,7 @@ public sealed class CompanyEvidenceTests : PostgresTestBase
         await Add("scope-changed", "foreign-new", "company", [Guid.NewGuid()], at.AddSeconds(1), "own");
         await Add("foreign", "1", "company", [Guid.NewGuid()], at);
         await Add("public", "1", "market", [], at);
-        var found = (await repo.CompanyEvidence(company, at.AddSeconds(2)));
+        var found = (await (repo.CompanyEvidence(company, at.AddSeconds(2))).RequireContentAsync());
         Assert.True(found.WatchAfterSequence < found.ChangeSequence);
         Assert.True(found.CompleteForLoadedScope);
         Assert.Equal(4, found.Sources.Length);

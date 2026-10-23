@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using AlfaHackaton.DapperContext.Common.Interfaces.Dapper;
 using AlfaHackaton.DapperContext.Dapper;
+using AlfaHackaton.Result;
 using ContextService.Common;
 using ContextService.Contracts.Knowledge;
 using ContextService.Models;
@@ -13,7 +14,7 @@ namespace ContextService.Repositories;
 
 public sealed class KnowledgeStore(IDapperContext context)
 {
-    public async Task<T> Save<T>(string category, string id, string revision, DateTimeOffset knownAt, T value)
+    public async Task<Result<T>> Save<T>(string category, string id, string revision, DateTimeOffset knownAt, T value)
     {
         var json = JsonSerializer.Serialize(value, ContextJson.Options);
         var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
@@ -29,12 +30,13 @@ public sealed class KnowledgeStore(IDapperContext context)
         {
             if (old != hash)
             {
-                throw new ApiException(409, "knowledge_revision_conflict", "Knowledge revisions are immutable.");
+                return new(new ApiError(409, "knowledge_revision_conflict", "Knowledge revisions are immutable."));
             }
 
             transaction.Commit();
-            return value;
+            return new(value, null);
         }
+
         try
         {
             await transaction.Command(new QueryObject(ContextSql.InsertKnowledge,
@@ -50,23 +52,22 @@ public sealed class KnowledgeStore(IDapperContext context)
         }
         catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
         {
-            throw new ApiException(409, "knowledge_time_conflict", "Two different revisions cannot share one knowledge time.");
+            return new(new ApiError(409, "knowledge_time_conflict", "Two different revisions cannot share one knowledge time."));
         }
+
         var companies = value switch
         {
-            CompanyProfile p => new[] { p.CompanyId },
+            CompanyProfile p => new[]
+            {
+                p.CompanyId
+            },
             RoleProfile p => p.AllowedCompanyIds,
             _ => Array.Empty<Guid>()
         };
         await ContextChanges.Append(transaction, category, id, revision, knownAt, companies);
         transaction.Commit();
-        return value;
+        return new(value, null);
     }
-    public async Task<T[]> List<T>(string category, DateTimeOffset asOf, bool latestOnly = true) =>
-        (await context.ListOrEmpty<string>(new QueryObject(latestOnly ? ContextSql.LatestKnowledge : ContextSql.AllKnowledge, new
-        {
-            c = category,
-            t = asOf.UtcTicks
-        })))
-            .Select(json => JsonSerializer.Deserialize<T>(json, ContextJson.Options)!).ToArray();
+
+    public async Task<T[]> List<T>(string category, DateTimeOffset asOf, bool latestOnly = true) => (await context.ListOrEmpty<string>(new QueryObject(latestOnly ? ContextSql.LatestKnowledge : ContextSql.AllKnowledge, new { c = category, t = asOf.UtcTicks }))).Select(json => JsonSerializer.Deserialize<T>(json, ContextJson.Options)!).ToArray();
 }

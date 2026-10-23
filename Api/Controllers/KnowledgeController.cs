@@ -1,4 +1,3 @@
-using AlfaHackaton.Controllers.Controllers;
 using ContextService.Contracts.Knowledge;
 using ContextService.Models;
 using ContextService.Services;
@@ -9,7 +8,7 @@ namespace ContextService.Controllers;
 
 [ApiController]
 [Route("context-service/internal")]
-public sealed class KnowledgeController(KnowledgeService knowledge) : BaseController
+public sealed class KnowledgeController(KnowledgeService knowledge) : ApiControllerBase
 {
     [HttpPost("companies")]
     public async Task<IActionResult> SaveCompany([FromBody] CompanyProfile request) => OkOrProblem<CompanyProfile>(await knowledge.SaveCompany(request));
@@ -28,7 +27,11 @@ public sealed class KnowledgeController(KnowledgeService knowledge) : BaseContro
     [HttpPost("people")]
     public async Task<IActionResult> SavePerson([FromBody] PersonProfile request) => OkOrProblem<PersonProfile>(await knowledge.SavePerson(request));
     [HttpGet("people/{personId}")]
-    public async Task<IActionResult> Person([FromRoute] string personId, [FromQuery, BindRequired] DateTimeOffset asOf) =>
-        OkOrProblem<PersonProfile>((await knowledge.People(asOf)).SingleOrDefault(person => person.PersonId == personId)
-            ?? throw new ApiException(404, "person_not_found", "Person profile is unavailable at asOf."));
+    public async Task<IActionResult> Person([FromRoute] string personId, [FromQuery, BindRequired] DateTimeOffset asOf)
+    {
+        var person = (await knowledge.People(asOf)).SingleOrDefault(person => person.PersonId == personId);
+        return person is null
+            ? OkOrProblem<PersonProfile>(new(new ApiError(404, "person_not_found", "Person profile is unavailable at asOf.")))
+            : OkOrProblem<PersonProfile>(new(person, null));
+    }
 }

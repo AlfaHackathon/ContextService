@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using ContextService.Models;
 using Npgsql;
 
 namespace ContextService.Middleware;
@@ -20,7 +19,8 @@ public static partial class ContextRequestMiddleware
                 {
                     var expected = app.Configuration["Internal:Secret"];
                     var supplied = context.Request.Headers["X-Internal-Secret"].ToString();
-                    if (string.IsNullOrEmpty(expected) || string.IsNullOrEmpty(supplied) ||
+                    if (string.IsNullOrEmpty(expected) ||
+                        string.IsNullOrEmpty(supplied) ||
                         !CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(expected)),
                             SHA256.HashData(Encoding.UTF8.GetBytes(supplied))))
                     {
@@ -34,15 +34,6 @@ public static partial class ContextRequestMiddleware
                     }
                 }
                 await next(context);
-            }
-            catch (ApiException e)
-            {
-                context.Response.StatusCode = e.StatusCode;
-                await context.Response.WriteAsJsonAsync(new
-                {
-                    code = e.Code,
-                    message = e.Message
-                });
             }
             catch (BadHttpRequestException)
             {

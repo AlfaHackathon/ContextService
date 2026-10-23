@@ -1,3 +1,4 @@
+using ContextService.Models;
 using ContextService.Services;
 
 namespace ContextService.Workers;
@@ -6,22 +7,37 @@ public sealed partial class SearchProjectionWorker(SearchService search, ILogger
 {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Search projection pending ({ErrorType}); canonical data remains durable")]
     private static partial void LogProjectionPending(ILogger logger, string errorType);
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await search.Sync(stoppingToken);
+                var result = await search.Sync(stoppingToken);
+                if (result.Error is { } error)
+                {
+                    LogProjectionPending(logger, error is ApiError apiError ? apiError.Code : error.Type.ToString());
+                }
+
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception e) { LogProjectionPending(logger, e.GetType().Name); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception e)
+            {
+                LogProjectionPending(logger, e.GetType().Name);
+            }
+
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
         }
+
     }
 }
