@@ -68,9 +68,9 @@ public sealed class MvcContractTests : PostgresTestBase
             Text = "Changed"
         });
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
-        Assert.Equal("immutable_version_conflict", (await conflict.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal("This material/version already exists with different content or metadata.", (await conflict.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errorMessage").GetString());
         using var missing = await client.GetAsync("/context-service/internal/material-versions/missing/1");
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
-        Assert.Equal("material_not_found", (await missing.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal("Material version was not found.", (await missing.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errorMessage").GetString());
     }
 }

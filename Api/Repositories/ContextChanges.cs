@@ -1,9 +1,10 @@
+using System.Net;
 using System.Text.Json;
 using AlfaHackaton.DapperContext.Common.Interfaces.Dapper;
 using AlfaHackaton.DapperContext.Dapper;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Contracts.Changes;
-using ContextService.Models;
 using ContextService.Resources;
 
 namespace ContextService.Repositories;
@@ -25,7 +26,7 @@ public sealed class ContextChanges(IDapperContext context)
     {
         if (after < 0)
         {
-            return new(new ApiError(400, "invalid_change_cursor", "Change cursor must be nonnegative."));
+            return new(new Error("Change cursor must be nonnegative.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         return new((await context.ListOrEmpty<ChangeRow>(new QueryObject(ContextSql.ReadNextChange, new

@@ -1,12 +1,13 @@
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AlfaHackaton.DapperContext.Common.Interfaces.Dapper;
 using AlfaHackaton.DapperContext.Dapper;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Common;
 using ContextService.Contracts.Knowledge;
-using ContextService.Models;
 using ContextService.Resources;
 using Npgsql;
 
@@ -30,7 +31,7 @@ public sealed class KnowledgeStore(IDapperContext context)
         {
             if (old != hash)
             {
-                return new(new ApiError(409, "knowledge_revision_conflict", "Knowledge revisions are immutable."));
+                return new(new Error("Knowledge revisions are immutable.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.Conflict });
             }
 
             transaction.Commit();
@@ -52,7 +53,7 @@ public sealed class KnowledgeStore(IDapperContext context)
         }
         catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
         {
-            return new(new ApiError(409, "knowledge_time_conflict", "Two different revisions cannot share one knowledge time."));
+            return new(new Error("Two different revisions cannot share one knowledge time.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.Conflict });
         }
 
         var companies = value switch

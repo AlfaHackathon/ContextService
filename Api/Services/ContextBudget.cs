@@ -1,6 +1,8 @@
+using System.Net;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Common;
 using ContextService.Contracts.Knowledge;
 using ContextService.Contracts.Materials;
@@ -23,7 +25,7 @@ public static class ContextBudget
         var kept = groups.Where(g => requiredMaterialIds.Contains(g.Key)).SelectMany(g => g).ToList();
         if (Measure(news, kept) > maximum)
         {
-            return new(new ApiError(422, "mandatory_context_budget_exceeded", "The news and mandatory complete originals exceed the context budget; no source was truncated or substituted."));
+            return new(new Error("The news and mandatory complete originals exceed the context budget; no source was truncated or substituted.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.UnprocessableEntity });
         }
 
         var omitted = new List<SourceReference>();

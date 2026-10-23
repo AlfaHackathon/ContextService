@@ -1,7 +1,8 @@
+using System.Net;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Contracts.Retrieval;
 using ContextService.Contracts.Search;
-using ContextService.Models;
 using ContextService.Repositories.Interfaces;
 
 namespace ContextService.Services;
@@ -15,18 +16,18 @@ public sealed class RetrievedContextService(MaterialService materials, IMaterial
             r.Queries is null ||
             r.Queries.Length is < 1 or > 6)
         {
-            return new(new ApiError(400, "invalid_context_queries", "Company, asOf and 1–6 retrieval queries are required."));
+            return new(new Error("Company, asOf and 1–6 retrieval queries are required.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         if (r.Scope is not (null or "company" or "market") ||
             r.RequiredMaterialIds?.Length > 6)
         {
-            return new(new ApiError(400, "invalid_followup_scope", "Follow-up scope and at most six material identifiers are required."));
+            return new(new Error("Follow-up scope and at most six material identifiers are required.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         if (r.MaxCharacters is < 1024 or > 120000)
         {
-            return new(new ApiError(400, "invalid_context_budget", "Requested decoded context budget must be between 1024 and 120000 characters."));
+            return new(new Error("Requested decoded context budget must be between 1024 and 120000 characters.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         var newsMaterialIdResolution = await materials.GetAsync(r.NewsMaterialId, r.NewsVersionId);
@@ -41,7 +42,7 @@ public sealed class RetrievedContextService(MaterialService materials, IMaterial
             (news.CompanyIds.Length > 0 &&
                 !news.CompanyIds.Contains(r.CompanyId)))
         {
-            return new(new ApiError(403, "news_scope", "The news is unavailable for this company at asOf."));
+            return new(new Error("The news is unavailable for this company at asOf.", ErrorSource.Client, ErrorType.NoRights) { HttpStatusCode = HttpStatusCode.Forbidden });
         }
 
         var allowed = (await repository.GetContextMaterials(r.CompanyId, r.NewsMaterialId, r.AsOf)).Where(x => x.MaterialId != news.MaterialId ||

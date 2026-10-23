@@ -1,8 +1,9 @@
+using System.Net;
 using AlfaHackaton.DapperContext.Common.Interfaces.Dapper;
 using AlfaHackaton.DapperContext.Dapper;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Contracts.Companies;
-using ContextService.Models;
 using ContextService.Resources;
 
 namespace ContextService.Repositories;
@@ -15,7 +16,7 @@ public sealed class CompanyEvidenceRepository(IDapperContext context)
         if (companyId == Guid.Empty ||
             asOf == default)
         {
-            return new(new ApiError(400, "invalid_evidence_scope", "A company and knowledge time are required."));
+            return new(new Error("A company and knowledge time are required.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         using var transaction = context.BeginTransaction();

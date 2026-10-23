@@ -1,7 +1,8 @@
+using System.Net;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Common;
 using ContextService.Contracts.Materials;
-using ContextService.Models;
 
 namespace ContextService.Services;
 
@@ -23,7 +24,7 @@ public static class MaterialValidation
         }
         if (r.Kind is not ("news" or "company" or "market"))
         {
-            return new(new ApiError(400, "invalid_kind", "kind must be news, company or market."));
+            return new(new Error("kind must be news, company or market.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         var titleOnlyEvent = r.Kind == "news" &&
@@ -36,7 +37,7 @@ public static class MaterialValidation
             r.Text.Length > 200000 ||
             r.KnownAt == default)
         {
-            return new(new ApiError(400, "invalid_material", "title, bounded nonempty text and knownAt are required."));
+            return new(new Error("title, bounded nonempty text and knownAt are required.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         if (r.CompanyIds is null ||
@@ -45,13 +46,13 @@ public static class MaterialValidation
             r.CompanyIds.Length > 1000 ||
             r.BankProfileIds.Length > 1000)
         {
-            return new(new ApiError(400, "invalid_scope", "Explicit bounded companyIds and bankProfileIds arrays are required."));
+            return new(new Error("Explicit bounded companyIds and bankProfileIds arrays are required.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         if (r.Kind == "company" &&
             r.CompanyIds.Length == 0)
         {
-            return new(new ApiError(400, "invalid_scope", "Company material requires at least one company Guid."));
+            return new(new Error("Company material requires at least one company Guid.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         foreach (var id in r.BankProfileIds)
@@ -78,9 +79,7 @@ public static class MaterialValidation
                 (p.Acquisition != "news_service" &&
                     p.OriginVersionId is not null))
             {
-                return new(new ApiError(400,
-                    "invalid_provenance",
-                    "Explicit acquisition, completeness and actual retrieval time are required; news-service versions must retain their origin identity."));
+                return new(new Error("Explicit acquisition, completeness and actual retrieval time are required; news-service versions must retain their origin identity.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
             }
         }
 
@@ -92,7 +91,7 @@ public static class MaterialValidation
             }
             if (r.CorrectsVersionId == r.VersionId)
             {
-                return new(new ApiError(400, "self_correction", "A version cannot correct itself."));
+                return new(new Error("A version cannot correct itself.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
             }
         }
 

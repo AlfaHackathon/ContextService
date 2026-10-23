@@ -17,14 +17,14 @@ public sealed class MaterialsTests : PostgresTestBase
         Assert.Empty((await (Service().GetContext(new(company, "news", "v1", now))).RequireContentAsync()).Materials);
         Assert.Equal(first.ContentHash, (await (Service().GetAsync("news", "v1")).RequireContentAsync()).ContentHash);
         var conflict = (await ResultAssert.ErrorAsync(async () => await Service().Save(request with { Text = "Changed text" })));
-        Assert.Equal(409, conflict.StatusCode);
+        Assert.Equal(409, (int)conflict.HttpStatusCode!);
     }
 
     [Fact]
     public async Task CorrectionRequiresActualPriorAndPreservesHistory()
     {
         var service = Service();
-        Assert.Equal(409, (await ResultAssert.ErrorAsync(async () => await service.Save(Material(version: "v2") with { CorrectsVersionId = "v1" }))).StatusCode);
+        Assert.Equal(409, (int)(await ResultAssert.ErrorAsync(async () => await service.Save(Material(version: "v2") with { CorrectsVersionId = "v1" }))).HttpStatusCode!);
         await (service.Save(Material())).RequireContentAsync();
         await (service.Save(Material(version: "v2") with
         {
@@ -65,9 +65,9 @@ public sealed class MaterialsTests : PostgresTestBase
     {
         var service = Service();
         await (service.Save(Material())).RequireContentAsync();
-        Assert.Equal(403, (await ResultAssert.ErrorAsync(async () => await service.GetContext(new(company, "news", "v1", now.AddMinutes(-1))))).StatusCode);
+        Assert.Equal(403, (int)(await ResultAssert.ErrorAsync(async () => await service.GetContext(new(company, "news", "v1", now.AddMinutes(-1))))).HttpStatusCode!);
         await (service.Save(Material("foreign-news", scope: [Guid.NewGuid()]))).RequireContentAsync();
-        Assert.Equal(403, (await ResultAssert.ErrorAsync(async () => await service.GetContext(new(company, "foreign-news", "v1", now)))).StatusCode);
+        Assert.Equal(403, (int)(await ResultAssert.ErrorAsync(async () => await service.GetContext(new(company, "foreign-news", "v1", now)))).HttpStatusCode!);
     }
 
     [Fact]
@@ -75,8 +75,8 @@ public sealed class MaterialsTests : PostgresTestBase
     {
         await (Service().Save(Material())).RequireContentAsync();
         var failure = (await ResultAssert.ErrorAsync(async () => await Service(5).GetContext(new(company, "news", "v1", now))));
-        Assert.Equal(422, failure.StatusCode);
-        Assert.Equal("context_budget_exceeded", failure.Code);
+        Assert.Equal(422, (int)failure.HttpStatusCode!);
+        Assert.Contains("configured limit is 5. No partial context was returned.", failure.Title);
     }
 
     [Fact]
@@ -110,9 +110,9 @@ public sealed class MaterialsTests : PostgresTestBase
                 RetrievedAt = now.ToOffset(TimeSpan.FromHours(3))
             }
         })).RequireContentAsync()).ContentHash);
-        Assert.Equal(409, (await ResultAssert.ErrorAsync(async () => await Service().Save(request with { Provenance = request.Provenance! with { TextCompleteness = "full" } }))).StatusCode);
-        Assert.Equal(400, (await ResultAssert.ErrorAsync(async () => await Service().Save(Material("bad-origin") with { Provenance = new("news_service", "https://news.example/source", now, "full", "other-version") }))).StatusCode);
-        Assert.Equal(400, (await ResultAssert.ErrorAsync(async () => await Service().Save(Material("future-retrieval") with { Provenance = new("uploaded", null, now.AddTicks(1), "full") }))).StatusCode);
+        Assert.Equal(409, (int)(await ResultAssert.ErrorAsync(async () => await Service().Save(request with { Provenance = request.Provenance! with { TextCompleteness = "full" } }))).HttpStatusCode!);
+        Assert.Equal(400, (int)(await ResultAssert.ErrorAsync(async () => await Service().Save(Material("bad-origin") with { Provenance = new("news_service", "https://news.example/source", now, "full", "other-version") }))).HttpStatusCode!);
+        Assert.Equal(400, (int)(await ResultAssert.ErrorAsync(async () => await Service().Save(Material("future-retrieval") with { Provenance = new("uploaded", null, now.AddTicks(1), "full") }))).HttpStatusCode!);
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class MaterialsTests : PostgresTestBase
         var saved = (await (Service().Save(request)).RequireContentAsync());
         Assert.Equal("", saved.Text);
         Assert.Equal("lead", saved.Provenance!.TextCompleteness);
-        Assert.Equal(400, (await ResultAssert.ErrorAsync(async () => await Service().Save(Material("not-full") with { Text = "", Provenance = request.Provenance with { TextCompleteness = "full" } }))).StatusCode);
-        Assert.Equal(400, (await ResultAssert.ErrorAsync(async () => await Service().Save(Material("not-company", kind: "company", scope: [company]) with { Text = "", Provenance = request.Provenance }))).StatusCode);
+        Assert.Equal(400, (int)(await ResultAssert.ErrorAsync(async () => await Service().Save(Material("not-full") with { Text = "", Provenance = request.Provenance with { TextCompleteness = "full" } }))).HttpStatusCode!);
+        Assert.Equal(400, (int)(await ResultAssert.ErrorAsync(async () => await Service().Save(Material("not-company", kind: "company", scope: [company]) with { Text = "", Provenance = request.Provenance }))).HttpStatusCode!);
     }
 }

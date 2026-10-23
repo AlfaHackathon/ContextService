@@ -2,7 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AlfaHackaton.Result;
-using ContextService.Models;
+using AlfaHackaton.Result.Errors;
 using ContextService.Settings;
 
 namespace ContextService.Services;
@@ -132,7 +132,7 @@ public sealed class RetrievalClient
             values.Any(x => x.Length != dimensions ||
                 x.Any(v => !float.IsFinite(v))))
         {
-            return new(new ApiError(502, "invalid_embeddings", "Embedding count, indices, dimensions or values do not match the configured model."));
+            return new(new Error("Embedding count, indices, dimensions or values do not match the configured model.", ErrorSource.External, ErrorType.Undefined) { HttpStatusCode = HttpStatusCode.BadGateway });
         }
 
         return new(values, null);
@@ -156,7 +156,7 @@ public sealed class RetrievalClient
     {
         if (!response.IsSuccessStatusCode)
         {
-            return new(new ApiError(503, "retrieval_upstream_unavailable", $"Retrieval upstream returned HTTP {(int)response.StatusCode}; no empty success is implied."));
+            return new(new Error($"Retrieval upstream returned HTTP {(int)response.StatusCode}; no empty success is implied.", ErrorSource.External, ErrorType.Undefined) { HttpStatusCode = HttpStatusCode.ServiceUnavailable });
         }
 
         return new();

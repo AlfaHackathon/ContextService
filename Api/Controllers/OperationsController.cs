@@ -1,10 +1,11 @@
+using AlfaHackaton.Controllers.Controllers;
 using ContextService.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ContextService.Controllers;
 
 [ApiController]
-public sealed class OperationsController(ContextChangeService changes) : ApiControllerBase
+public sealed class OperationsController(ContextChangeService changes) : BaseController
 {
     [HttpGet("health")]
     public IActionResult Health() => Ok(new { service = "context-service", status = "ok" });

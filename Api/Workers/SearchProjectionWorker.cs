@@ -1,4 +1,3 @@
-using ContextService.Models;
 using ContextService.Services;
 
 namespace ContextService.Workers;
@@ -16,7 +15,7 @@ public sealed partial class SearchProjectionWorker(SearchService search, ILogger
                 var result = await search.Sync(stoppingToken);
                 if (result.Error is { } error)
                 {
-                    LogProjectionPending(logger, error is ApiError apiError ? apiError.Code : error.Type.ToString());
+                    LogProjectionPending(logger, error.Type.ToString());
                 }
 
             }

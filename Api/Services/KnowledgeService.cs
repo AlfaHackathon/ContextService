@@ -1,7 +1,8 @@
+using System.Net;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Common;
 using ContextService.Contracts.Knowledge;
-using ContextService.Models;
 using ContextService.Repositories;
 
 namespace ContextService.Services;
@@ -17,7 +18,7 @@ public sealed class KnowledgeService(KnowledgeStore store, MaterialService mater
             p.Exposures is null ||
             p.Description.Length > 16000)
         {
-            return new(new ApiError(400, "invalid_company_profile", "Company identity, name, bounded description and feature arrays are required."));
+            return new(new Error("Company identity, name, bounded description and feature arrays are required.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         if ((await Validate(p.RevisionId, p.KnownAt, p.SourceRefs, p.CompanyId)).Error is { } companyEvidenceError)
@@ -40,7 +41,7 @@ public sealed class KnowledgeService(KnowledgeStore store, MaterialService mater
             p.Members is null ||
             p.Members.Length > 512)
         {
-            return new(new ApiError(400, "invalid_group", "A group requires a name and at most 512 explicit members."));
+            return new(new Error("A group requires a name and at most 512 explicit members.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         if ((await Validate(p.RevisionId, p.KnownAt, p.SourceRefs)).Error is { } groupEvidenceError)
@@ -49,7 +50,7 @@ public sealed class KnowledgeService(KnowledgeStore store, MaterialService mater
         }
         if (p.AggregationRule is not (null or "sum_compatible_owner_effects"))
         {
-            return new(new ApiError(400, "invalid_aggregation_rule", "Only an explicitly sourced sum_compatible_owner_effects rule is supported."));
+            return new(new Error("Only an explicitly sourced sum_compatible_owner_effects rule is supported.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         var keys = new HashSet<string>();
@@ -58,7 +59,7 @@ public sealed class KnowledgeService(KnowledgeStore store, MaterialService mater
             if (member is null ||
                 member.Kind is not ("company" or "group"))
             {
-                return new(new ApiError(400, "invalid_group_member", "Each member must identify a company or a nested group."));
+                return new(new Error("Each member must identify a company or a nested group.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
             }
 
             if (IdentifierValidation.RequireId(member.Id, "member id").Error is { } memberIdError)
@@ -69,12 +70,12 @@ public sealed class KnowledgeService(KnowledgeStore store, MaterialService mater
                 (!Guid.TryParse(member.Id, out var id) ||
                     id == Guid.Empty))
             {
-                return new(new ApiError(400, "invalid_company", "Company members use application Guids."));
+                return new(new Error("Company members use application Guids.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
             }
 
             if (!keys.Add(member.Kind + ":" + member.Id.ToLowerInvariant()))
             {
-                return new(new ApiError(400, "duplicate_group_member", "A direct group edge may occur only once."));
+                return new(new Error("A direct group edge may occur only once.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
             }
 
             if ((await Validate(p.RevisionId, p.KnownAt, member.SourceRefs)).Error is { } memberEvidenceError)
@@ -105,7 +106,7 @@ public sealed class KnowledgeService(KnowledgeStore store, MaterialService mater
             p.AllowedCompanyIds.Length > 512 ||
             p.AllowedMaterialIds.Length > 2048)
         {
-            return new(new ApiError(400, "invalid_role", "An explicit role, responsibilities and bounded read grant including its company are required."));
+            return new(new Error("An explicit role, responsibilities and bounded read grant including its company are required.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         foreach (var id in p.AllowedMaterialIds)
@@ -135,7 +136,7 @@ public sealed class KnowledgeService(KnowledgeStore store, MaterialService mater
         if (p.CompanyLinks is null ||
             p.CompanyLinks.Length > 512)
         {
-            return new(new ApiError(400, "invalid_person_links", "A person requires an explicit bounded links array."));
+            return new(new Error("A person requires an explicit bounded links array.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         if ((await Validate(p.RevisionId, p.KnownAt, p.SourceRefs)).Error is { } personEvidenceError)
@@ -147,7 +148,7 @@ public sealed class KnowledgeService(KnowledgeStore store, MaterialService mater
             if (link.CompanyId == Guid.Empty ||
                 link.RelationKind is not ("unspecified" or "employee" or "representative" or "owner"))
             {
-                return new(new ApiError(400, "invalid_person_link", "A link requires an application company ID and an explicit relation kind."));
+                return new(new Error("A link requires an application company ID and an explicit relation kind.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
             }
 
             if ((await Validate(p.RevisionId, p.KnownAt, link.SourceRefs, link.CompanyId)).Error is { } linkEvidenceError)
@@ -177,14 +178,14 @@ public sealed class KnowledgeService(KnowledgeStore store, MaterialService mater
             refs is null ||
             refs.Length is < 1 or > 64)
         {
-            return new(new ApiError(400, "knowledge_evidence_required", "Knowledge time and 1–64 immutable source references are required."));
+            return new(new Error("Knowledge time and 1–64 immutable source references are required.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         foreach (var r in refs)
         {
             if (r is null)
             {
-                return new(new ApiError(400, "invalid_source", "Source references cannot contain null."));
+                return new(new Error("Source references cannot contain null.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
             }
 
             var materialIdResolution = await materials.GetAsync(r.MaterialId, r.VersionId);
@@ -197,13 +198,13 @@ public sealed class KnowledgeService(KnowledgeStore store, MaterialService mater
             if (source.ContentHash != r.ContentHash ||
                 source.KnownAt > knownAt)
             {
-                return new(new ApiError(422, "invalid_knowledge_evidence", "Evidence must match its original hash and be known at the profile revision."));
+                return new(new Error("Evidence must match its original hash and be known at the profile revision.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.UnprocessableEntity });
             }
 
             if (company.HasValue &&
                 !source.CompanyIds.Contains(company.Value))
             {
-                return new(new ApiError(422, "profile_company_scope", "Company and role evidence must explicitly belong to the target company."));
+                return new(new Error("Company and role evidence must explicitly belong to the target company.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.UnprocessableEntity });
             }
         }
 

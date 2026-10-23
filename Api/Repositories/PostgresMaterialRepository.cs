@@ -1,11 +1,12 @@
+using System.Net;
 using System.Text.Json;
 using AlfaHackaton.DapperContext.Common.Interfaces.Dapper;
 using AlfaHackaton.DapperContext.Dapper;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Common;
 using ContextService.Contracts.Companies;
 using ContextService.Contracts.Materials;
-using ContextService.Models;
 using ContextService.Repositories.Interfaces;
 using ContextService.Resources;
 
@@ -28,7 +29,7 @@ public sealed class PostgresMaterialRepository(IDapperContext context, CompanyEv
             var existing = JsonSerializer.Deserialize<MaterialVersion>(existingJson, ContextJson.Options)!;
             if (existing.ContentHash != material.ContentHash)
             {
-                return new(new ApiError(409, "immutable_version_conflict", "This material/version already exists with different content or metadata."));
+                return new(new Error("This material/version already exists with different content or metadata.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.Conflict });
             }
 
             transaction.Commit();
@@ -44,7 +45,7 @@ public sealed class PostgresMaterialRepository(IDapperContext context, CompanyEv
             if (identity.SourceId != material.SourceId ||
                 identity.Kind != material.Kind)
             {
-                return new(new ApiError(409, "material_identity_conflict", "sourceId and kind cannot change within one material identity."));
+                return new(new Error("sourceId and kind cannot change within one material identity.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.Conflict });
             }
         }
 
@@ -59,12 +60,12 @@ public sealed class PostgresMaterialRepository(IDapperContext context, CompanyEv
             var prior = priorJson is null ? null : JsonSerializer.Deserialize<MaterialVersion>(priorJson, ContextJson.Options);
             if (prior is null)
             {
-                return new(new ApiError(409, "missing_corrected_version", "The corrected version must already exist on this material."));
+                return new(new Error("The corrected version must already exist on this material.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.Conflict });
             }
 
             if (prior.KnownAt > material.KnownAt)
             {
-                return new(new ApiError(409, "correction_knowledge_order", "A correction cannot be known before its predecessor."));
+                return new(new Error("A correction cannot be known before its predecessor.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.Conflict });
             }
         }
 

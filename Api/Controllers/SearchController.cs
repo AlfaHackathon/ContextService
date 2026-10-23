@@ -1,3 +1,4 @@
+using AlfaHackaton.Controllers.Controllers;
 using ContextService.Contracts.Search;
 using ContextService.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -6,7 +7,7 @@ namespace ContextService.Controllers;
 
 [ApiController]
 [Route("context-service/internal/search")]
-public sealed class SearchController(SearchService search) : ApiControllerBase
+public sealed class SearchController(SearchService search) : BaseController
 {
     [HttpPost]
     public async Task<IActionResult> Search([FromBody] SearchRequest request, CancellationToken ct) => OkOrProblem<SearchResponse>(await search.Search(request, ct));

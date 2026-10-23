@@ -1,10 +1,11 @@
+using System.Net;
 using System.Text.Json;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Common;
 using ContextService.Contracts.Knowledge;
 using ContextService.Contracts.Materials;
 using ContextService.Contracts.Search;
-using ContextService.Models;
 using ContextService.Repositories.Interfaces;
 
 namespace ContextService.Services;
@@ -34,7 +35,7 @@ public sealed class SearchService
             request.AsOf == default ||
             request.Limit is < 1 or > 64)
         {
-            return new(new ApiError(400, "invalid_search", "A bounded query, asOf and limit 1–64 are required."));
+            return new(new Error("A bounded query, asOf and limit 1–64 are required.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         if ((await client.Ensure(ct)).Error is { } initializationError)
@@ -224,13 +225,13 @@ public sealed class SearchService
                     !double.IsFinite(score) ||
                     !scores.TryAdd(index, score))
                 {
-                    return new(new ApiError(502, "invalid_reranker", "Reranker returned invalid document indices or scores."));
+                    return new(new Error("Reranker returned invalid document indices or scores.", ErrorSource.External, ErrorType.Undefined) { HttpStatusCode = HttpStatusCode.BadGateway });
                 }
             }
 
             if (scores.Count != hits.Count)
             {
-                return new(new ApiError(502, "incomplete_reranker", "Reranker omitted candidate documents."));
+                return new(new Error("Reranker omitted candidate documents.", ErrorSource.External, ErrorType.Undefined) { HttpStatusCode = HttpStatusCode.BadGateway });
             }
 
             hits = hits.Select((h, i) => h with { Score = scores[i] }).ToList();

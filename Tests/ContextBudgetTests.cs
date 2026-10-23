@@ -27,6 +27,6 @@ public sealed class ContextBudgetTests
         var news = Material("event", "1", "News", "news");
         var profile = Material("profile", "1", new string('x', 6000), "company");
         var error = ResultAssert.Error(() => ContextBudget.Pack(news, [profile], new HashSet<string> { "profile" }, new Dictionary<string, double>(), 4000));
-        Assert.Equal("mandatory_context_budget_exceeded", error.Code);
+        Assert.Equal("The news and mandatory complete originals exceed the context budget; no source was truncated or substituted.", error.Title);
     }
 }

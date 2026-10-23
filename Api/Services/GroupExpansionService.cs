@@ -1,7 +1,8 @@
+using System.Net;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Common;
 using ContextService.Contracts.Knowledge;
-using ContextService.Models;
 
 namespace ContextService.Services;
 
@@ -24,7 +25,7 @@ public static class GroupExpansionService
             if (++visited > 2048 ||
                 path.Length >= 32)
             {
-                return new(new ApiError(422, "group_expansion_budget", "The explicit group graph exceeds the traversal budget."));
+                return new(new Error("The explicit group graph exceeds the traversal budget.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.UnprocessableEntity });
             }
 
             if (path.Contains(current, StringComparer.Ordinal))

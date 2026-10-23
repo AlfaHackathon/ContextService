@@ -1,5 +1,6 @@
+using System.Net;
 using AlfaHackaton.Result;
-using ContextService.Models;
+using AlfaHackaton.Result.Errors;
 
 namespace ContextService.Common;
 
@@ -13,7 +14,7 @@ public static class IdentifierValidation
             value.Any(c => char.IsControl(c) ||
                 c is '/' or '\\'))
         {
-            return new(new ApiError(400, "invalid_id", $"{name} must be a nonempty bounded path-safe identifier."));
+            return new(new Error($"{name} must be a nonempty bounded path-safe identifier.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         return new();

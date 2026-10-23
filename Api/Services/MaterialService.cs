@@ -1,11 +1,12 @@
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AlfaHackaton.Result;
+using AlfaHackaton.Result.Errors;
 using ContextService.Common;
 using ContextService.Contracts.Companies;
 using ContextService.Contracts.Materials;
-using ContextService.Models;
 using ContextService.Repositories.Interfaces;
 using ContextService.Services.Interfaces;
 
@@ -53,7 +54,7 @@ public sealed class MaterialService(IMaterialRepository repository, int maxChara
         var materialIdResolution = await repository.GetAsync(materialId, versionId);
         if (materialIdResolution is null)
         {
-            return new(new ApiError(404, "material_not_found", "Material version was not found."));
+            return new(new Error("Material version was not found.", ErrorSource.Client, ErrorType.NotFound) { HttpStatusCode = HttpStatusCode.NotFound });
         }
 
         return new(materialIdResolution, null);
@@ -64,7 +65,7 @@ public sealed class MaterialService(IMaterialRepository repository, int maxChara
         if (request.CompanyId == Guid.Empty ||
             request.AsOf == default)
         {
-            return new(new ApiError(400, "invalid_request", "companyId and asOf are required."));
+            return new(new Error("companyId and asOf are required.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         var newsMaterialIdResolution = await GetAsync(request.NewsMaterialId, request.NewsVersionId);
@@ -76,18 +77,18 @@ public sealed class MaterialService(IMaterialRepository repository, int maxChara
         var news = newsMaterialIdResolution.Content!;
         if (news.Kind != "news")
         {
-            return new(new ApiError(400, "not_news", "The requested version must be news."));
+            return new(new Error("The requested version must be news.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         if (news.KnownAt > request.AsOf)
         {
-            return new(new ApiError(403, "news_not_known", "The news version is not known at asOf."));
+            return new(new Error("The news version is not known at asOf.", ErrorSource.Client, ErrorType.NoRights) { HttpStatusCode = HttpStatusCode.Forbidden });
         }
 
         if (news.CompanyIds.Length > 0 &&
             !news.CompanyIds.Contains(request.CompanyId))
         {
-            return new(new ApiError(403, "company_scope", "The news version belongs to a different company scope."));
+            return new(new Error("The news version belongs to a different company scope.", ErrorSource.Client, ErrorType.NoRights) { HttpStatusCode = HttpStatusCode.Forbidden });
         }
 
         var materials = (await repository.GetContextMaterials(request.CompanyId, request.NewsMaterialId, request.AsOf)).Where(m => m.MaterialId != news.MaterialId ||
@@ -99,9 +100,7 @@ public sealed class MaterialService(IMaterialRepository repository, int maxChara
         }, Json).Length;
         if (characters > maxCharacters)
         {
-            return new(new ApiError(422,
-                "context_budget_exceeded",
-                $"Complete serialized source context requires {characters} characters; configured limit is {maxCharacters}. No partial context was returned."));
+            return new(new Error($"Complete serialized source context requires {characters} characters; configured limit is {maxCharacters}. No partial context was returned.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.UnprocessableEntity });
         }
 
         return new(new ContextBundle(news,

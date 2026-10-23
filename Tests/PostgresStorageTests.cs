@@ -76,7 +76,7 @@ public sealed class PostgresStorageTests : PostgresTestBase
         Assert.Single(results.Select(result => result.ContentHash).Distinct());
         Assert.Single(await (new ContextChanges(Database).Read(0)).RequireContentAsync());
         var failure = await ResultAssert.ErrorAsync(() => service.Save(request with { Text = "conflict" }));
-        Assert.Equal("immutable_version_conflict", failure.Code);
+        Assert.Equal("This material/version already exists with different content or metadata.", failure.Title);
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class PostgresStorageTests : PostgresTestBase
         var first = new GroupProfile("g", "1", "Group", known, [], []);
         await (store.Save("group", "g", "1", known, first)).RequireContentAsync();
         var failure = await ResultAssert.ErrorAsync(() => store.Save("group", "g", "2", known, first with { RevisionId = "2" }));
-        Assert.Equal("knowledge_time_conflict", failure.Code);
+        Assert.Equal("Two different revisions cannot share one knowledge time.", failure.Title);
         Assert.Equal("1", Assert.Single(await store.List<GroupProfile>("group", known)).RevisionId);
         Assert.Single(await (new ContextChanges(Database).Read(0)).RequireContentAsync());
     }

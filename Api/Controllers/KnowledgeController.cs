@@ -1,5 +1,7 @@
+using System.Net;
+using AlfaHackaton.Controllers.Controllers;
+using AlfaHackaton.Result.Errors;
 using ContextService.Contracts.Knowledge;
-using ContextService.Models;
 using ContextService.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -8,7 +10,7 @@ namespace ContextService.Controllers;
 
 [ApiController]
 [Route("context-service/internal")]
-public sealed class KnowledgeController(KnowledgeService knowledge) : ApiControllerBase
+public sealed class KnowledgeController(KnowledgeService knowledge) : BaseController
 {
     [HttpPost("companies")]
     public async Task<IActionResult> SaveCompany([FromBody] CompanyProfile request) => OkOrProblem<CompanyProfile>(await knowledge.SaveCompany(request));
@@ -31,7 +33,7 @@ public sealed class KnowledgeController(KnowledgeService knowledge) : ApiControl
     {
         var person = (await knowledge.People(asOf)).SingleOrDefault(person => person.PersonId == personId);
         return person is null
-            ? OkOrProblem<PersonProfile>(new(new ApiError(404, "person_not_found", "Person profile is unavailable at asOf.")))
+            ? OkOrProblem<PersonProfile>(new(new Error("Person profile is unavailable at asOf.", ErrorSource.Client, ErrorType.NotFound) { HttpStatusCode = HttpStatusCode.NotFound }))
             : OkOrProblem<PersonProfile>(new(person, null));
     }
 }
