@@ -21,6 +21,12 @@ Contracts/Common/Resources и не зависят от application-сервис�
 репозиториями/миграциями, с прежними параметрами и транзакциями; ресурсы включены в DLL.
 `RetrievalClient`, `SearchProjectionService` и repository отметок создаются через DI.
 PostgreSQL хранит канонические версии; Qdrant остаётся перестраиваемой поисковой базой. SQLite fallback отсутствует.
+Каждый Sync проверяет наличие коллекции и сверяет фактические point IDs/hash с каноническими
+записями и PostgreSQL-отметками (до 256 IDs за запрос, без vectors). Потеря коллекции или части
+точек восстанавливается следующим Sync/worker даже при сохранённых отметках и без перезапуска.
+Исправные точки повторно не отправляются; embeddings считаются только для восстанавливаемых
+или изменённых записей. Ошибка сверки/записи Qdrant возвращает ошибку, успешный upsert
+получает отметку только после подтверждения Qdrant.
 
 Реально используются NuGet `AlfaHackaton.Controllers` 1.4.1, `AlfaHackaton.DapperContext` 1.2.0,
 `AlfaHackaton.HttpClient` 1.1.1 и явно подключённый `AlfaHackaton.Result` 1.0.0: controller success проходит
@@ -46,6 +52,9 @@ dotnet publish Api/ContextService.Api.csproj -c Release -o ./publish
 при сбое change feed, concurrent idempotence, temporal conflicts и atomic projection marks.
 `MvcContractTests` выполняет настоящий MVC pipeline; `OrganizationHttpClientTests` — реальный
 loopback HTTP через общий пакет, включая JSON bytes, headers, redirects и cancellation.
+`SearchProjectionRecoveryTests` проверяет потерю и предварительное пересоздание коллекции
+с перезапуском и без, частичную потерю/устаревшие hashes, отсутствие повторных embeddings
+для исправных точек и повтор после отказа Qdrant на настоящем PostgreSQL.
 
 ## Версии, добор и события
 

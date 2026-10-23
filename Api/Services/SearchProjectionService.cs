@@ -10,6 +10,7 @@ namespace ContextService.Services;
 
 public sealed class SearchProjectionService : IDisposable
 {
+    private static readonly string[] HashPayload = ["hash"];
     private readonly RetrievalClient client;
     private readonly IConfiguration config;
     private readonly IMaterialRepository materials;
@@ -36,8 +37,8 @@ public sealed class SearchProjectionService : IDisposable
             {
                 return new(initializationError);
             }
-            // Canonical sources are scanned on restart; only missing/changed projection entries are sent.
-            // A failed upsert never receives a durable mark and is retried by the worker.
+            // Durable marks alone cannot prove the Qdrant collection still contains its points.
+            // Reconcile the actual projection before skipping entries; failed upserts remain retryable.
             var entries = new List<IndexEntry>();
             foreach (var p in (await knowledge.CompanyVersions()))
             {
@@ -70,8 +71,27 @@ public sealed class SearchProjectionService : IDisposable
             }
 
             var marks = await projection.Read(Pipeline);
-            var changed = entries.Where(x => !marks.TryGetValue(x.Id, out var h) ||
-                    h != x.Hash).ToArray();
+            var changed = new List<IndexEntry>();
+            foreach (var batch in entries.Chunk(256))
+            {
+                using var response = await client.Qdrant.PostAsJsonAsync($"collections/{client.Collection}/points", new
+                {
+                    ids = batch.Select(x => x.Id).ToArray(),
+                    with_payload = HashPayload,
+                    with_vector = false
+                }, ct);
+                if (RetrievalClient.RequireSuccess(response).Error is { } reconciliationError)
+                {
+                    return new(reconciliationError);
+                }
+                using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+                var indexed = json.RootElement.GetProperty("result").EnumerateArray().ToDictionary(
+                    x => x.GetProperty("id").GetString()!,
+                    x => x.TryGetProperty("payload", out var payload) && payload.ValueKind == JsonValueKind.Object &&
+                        payload.TryGetProperty("hash", out var hash) && hash.ValueKind == JsonValueKind.String ? hash.GetString() : null);
+                changed.AddRange(batch.Where(x => !marks.TryGetValue(x.Id, out var mark) || mark != x.Hash ||
+                    !indexed.TryGetValue(x.Id, out var hash) || hash != x.Hash));
+            }
             foreach (var batch in changed.Chunk(32))
             {
                 float[][]? dense = null;
@@ -124,7 +144,7 @@ public sealed class SearchProjectionService : IDisposable
                 await projection.Mark(Pipeline, batch.Select(e => new KeyValuePair<string, string>(e.Id, e.Hash)));
             }
 
-            return new(new SearchProjectionResult(changed.Length, entries.Count, client.Dense ? "dense+lexical-rrf" : "lexical-idf", client.Collection), null);
+            return new(new SearchProjectionResult(changed.Count, entries.Count, client.Dense ? "dense+lexical-rrf" : "lexical-idf", client.Collection), null);
         }
         finally
         {

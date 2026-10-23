@@ -13,7 +13,6 @@ public sealed class RetrievalClient
     private readonly RetrievalTransport<QdrantHttpSettings> qdrant;
     private readonly RetrievalTransport<InferenceHttpSettings> inference;
     private readonly string collection;
-    private bool initialized;
     public RetrievalTransport<QdrantHttpSettings> Qdrant => qdrant;
     public RetrievalTransport<InferenceHttpSettings> Inference => inference;
     public string Collection => collection;
@@ -33,11 +32,6 @@ public sealed class RetrievalClient
 
     public async Task<Result> Ensure(CancellationToken ct)
     {
-        if (initialized)
-        {
-            return new();
-        }
-
         using var check = await qdrant.GetAsync($"collections/{collection}", ct);
         if (check.StatusCode == HttpStatusCode.NotFound)
         {
@@ -100,7 +94,6 @@ public sealed class RetrievalClient
             }
         }
 
-        initialized = true;
         return new();
     }
 
