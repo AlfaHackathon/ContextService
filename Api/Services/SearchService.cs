@@ -155,8 +155,16 @@ public sealed class SearchService
             return new(companyError);
         }
         var profiles = companyProfiles.Content!.ToDictionary(x => x.CompanyId);
-        var knownVersions = (request.PublicOnly ||
-                request.CompanyId.HasValue) ? (await materials.ListKnown(request.AsOf)).GroupBy(m => m.MaterialId).ToDictionary(g => g.Key, g => g.Where(m => m.KnownAt == g.Max(x => x.KnownAt)).ToArray()) : new Dictionary<string, MaterialVersion[]>();
+        var knownVersions = (request.PublicOnly || request.CompanyId.HasValue)
+            ? (await materials.ListKnown(request.AsOf))
+                .Where(m => CanAccessMaterial(m, request))
+                .GroupBy(m => m.MaterialId)
+                .ToDictionary(g => g.Key, g =>
+                {
+                    var latestKnownAt = g.Max(m => m.KnownAt);
+                    return g.Where(m => m.KnownAt == latestKnownAt).ToArray();
+                })
+            : new Dictionary<string, MaterialVersion[]>();
         foreach (var row in json.RootElement.GetProperty("result").GetProperty("points").EnumerateArray())
         {
             var p = row.GetProperty("payload");
@@ -181,22 +189,15 @@ public sealed class SearchService
                 if (m is null ||
                     m.ContentHash != p.GetProperty("hash").GetString() ||
                     m.KnownAt > request.AsOf ||
-                    (!request.CompanyId.HasValue &&
-                        !(request.PublicOnly &&
-                            m.Kind == "market" &&
-                            m.CompanyIds.Length == 0)) ||
-                    (request.CompanyId.HasValue &&
-                        m.CompanyIds.Length > 0 &&
-                        !m.CompanyIds.Contains(request.CompanyId.Value)))
+                    !CanAccessMaterial(m, request))
                 {
                     continue;
                 }
 
                 var excerpt = p.GetProperty("text").GetString()!;
-                var related = knownVersions.GetValueOrDefault(m.MaterialId, []).Where(x => x.VersionId != m.VersionId &&
-                        (request.CompanyId.HasValue ? x.CompanyIds.Length == 0 ||
-                            x.CompanyIds.Contains(request.CompanyId.Value) : x.Kind == "market" &&
-                            x.CompanyIds.Length == 0)).Select(x => new SourceReference(x.MaterialId, x.VersionId, x.ContentHash)).ToArray();
+                var related = knownVersions.GetValueOrDefault(m.MaterialId, [])
+                    .Where(x => x.VersionId != m.VersionId)
+                    .Select(x => new SourceReference(x.MaterialId, x.VersionId, x.ContentHash)).ToArray();
                 hits.Add(new(request.CompanyId ?? Guid.Empty, refs, row.GetProperty("score").GetDouble(), excerpt, kind, m.MaterialId, m.VersionId, related));
                 texts.Add(excerpt);
             }
@@ -251,4 +252,9 @@ public sealed class SearchService
             request.AsOf),
             null);
     }
+
+    private static bool CanAccessMaterial(MaterialVersion material, SearchRequest request) => request.CompanyId.HasValue
+        ? material.CompanyIds.Contains(request.CompanyId.Value) ||
+            (material.Kind == "market" && material.CompanyIds.Length == 0)
+        : request.PublicOnly && material.Kind == "market" && material.CompanyIds.Length == 0;
 }
