@@ -21,7 +21,8 @@ public sealed class RetrievedContextTests : PostgresTestBase
         await (materials.Save(new("terms", "2", "fixture", "company", "Terms", "Corrected margin 3", Time.AddSeconds(1), Time, "1", [company], []))).RequireContentAsync();
         await (materials.Save(new("terms", "10", "fixture", "company", "Terms", "Equal-time correction margin 3.5", Time.AddSeconds(1), Time, "2", [company], []))).RequireContentAsync();
         await (materials.Save(new("terms", "3", "fixture", "company", "Terms", "Future margin 4", Time.AddSeconds(3), Time, "2", [company], []))).RequireContentAsync();
-        var knowledge = new KnowledgeService(new KnowledgeStore(Database), materials);
+        using var companyKnowledge = new CompanyKnowledgeFixture();
+        var knowledge = companyKnowledge.Client;
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Qdrant:BaseUrl"] = "http://qdrant.fixture", ["Qdrant:Collection"] = "fixture" }).Build();
         using var client = new HttpClient(new QdrantHandler(old, company));
         var search = CreateSearch(client, config, repository, knowledge, Database);
@@ -40,7 +41,7 @@ public sealed class RetrievedContextTests : PostgresTestBase
         public HttpClient CreateClient(string name) => client;
     }
 
-    private static SearchService CreateSearch(HttpClient http, IConfiguration config, PostgresMaterialRepository repository, KnowledgeService knowledge, AlfaHackaton.DapperContext.Common.Interfaces.Dapper.IDapperContext database)
+    private static SearchService CreateSearch(HttpClient http, IConfiguration config, PostgresMaterialRepository repository, CompanyKnowledgeClient knowledge, AlfaHackaton.DapperContext.Common.Interfaces.Dapper.IDapperContext database)
     {
         var qdrantSettings = new ContextService.Settings.QdrantHttpSettings
         {
@@ -61,7 +62,8 @@ public sealed class RetrievedContextTests : PostgresTestBase
         var company = Guid.NewGuid();
         var news = (await (materials.Save(new("news", "1", "fixture", "news", "Новость", "Событие", Time, Time, null, [], []))).RequireContentAsync());
         var original = (await (materials.Save(new("bank", "1", "fixture", "market", "Аналитика", new string('я', 25000), Time, Time, null, [], []))).RequireContentAsync());
-        var knowledge = new KnowledgeService(new KnowledgeStore(Database), materials);
+        using var companyKnowledge = new CompanyKnowledgeFixture();
+        var knowledge = companyKnowledge.Client;
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Qdrant:BaseUrl"] = "http://qdrant.fixture", ["Qdrant:Collection"] = "fixture" }).Build();
         using var client = new HttpClient(new QdrantHandler(original, company));
         var service = new RetrievedContextService(materials, repository, knowledge, CreateSearch(client, config, repository, knowledge, Database), config);

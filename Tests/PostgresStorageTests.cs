@@ -1,7 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
 using ContextService.Common;
-using ContextService.Contracts.Knowledge;
 using ContextService.Contracts.Materials;
 using ContextService.Repositories;
 using ContextService.Resources;
@@ -58,9 +57,6 @@ public sealed class PostgresStorageTests : PostgresTestBase
         Assert.Null(await Repository().GetAsync("atomic", "v1"));
         command.CommandText = "SELECT count(*) FROM material_companies";
         Assert.Equal(0L, await command.ExecuteScalarAsync());
-        var knowledge = new KnowledgeStore(Database);
-        await Assert.ThrowsAsync<PostgresException>(() => (knowledge.Save("group", "g", "1", known, new GroupProfile("g", "1", "Group", known, [], []))).RequireContentAsync());
-        Assert.Empty(await knowledge.List<GroupProfile>("group", known));
         command.CommandText = "DROP TRIGGER fail_change ON context_changes";
         await command.ExecuteNonQueryAsync();
         Assert.Equal((await (service.Save(request)).RequireContentAsync()).ContentHash, (await (service.Save(request)).RequireContentAsync()).ContentHash);
@@ -77,18 +73,6 @@ public sealed class PostgresStorageTests : PostgresTestBase
         Assert.Single(await (new ContextChanges(Database).Read(0)).RequireContentAsync());
         var failure = await ResultAssert.ErrorAsync(() => service.Save(request with { Text = "conflict" }));
         Assert.Equal("This material/version already exists with different content or metadata.", failure.Title);
-    }
-
-    [Fact]
-    public async Task EqualKnowledgeTimeConflictLeavesOriginalAndChangeUnchanged()
-    {
-        var store = new KnowledgeStore(Database);
-        var first = new GroupProfile("g", "1", "Group", known, [], []);
-        await (store.Save("group", "g", "1", known, first)).RequireContentAsync();
-        var failure = await ResultAssert.ErrorAsync(() => store.Save("group", "g", "2", known, first with { RevisionId = "2" }));
-        Assert.Equal("Two different revisions cannot share one knowledge time.", failure.Title);
-        Assert.Equal("1", Assert.Single(await store.List<GroupProfile>("group", known)).RevisionId);
-        Assert.Single(await (new ContextChanges(Database).Read(0)).RequireContentAsync());
     }
 
     [Fact]

@@ -7,7 +7,7 @@ using ContextService.Repositories.Interfaces;
 
 namespace ContextService.Services;
 
-public sealed class RetrievedContextService(MaterialService materials, IMaterialRepository repository, KnowledgeService knowledge, SearchService search, IConfiguration config)
+public sealed class RetrievedContextService(MaterialService materials, IMaterialRepository repository, CompanyKnowledgeClient knowledge, SearchService search, IConfiguration config)
 {
     public async Task<Result<RetrievedContextBundle>> GetAsync(RetrieveContextRequest r, CancellationToken ct)
     {
@@ -86,7 +86,12 @@ public sealed class RetrievedContextService(MaterialService materials, IMaterial
             }
         }
 
-        var profile = (await knowledge.Companies(r.AsOf)).SingleOrDefault(x => x.CompanyId == r.CompanyId);
+        var profiles = await knowledge.Companies(r.AsOf, ct);
+        if (profiles.Error is { } companyError)
+        {
+            return new(companyError);
+        }
+        var profile = profiles.Content!.SingleOrDefault(x => x.CompanyId == r.CompanyId);
         if (profile is not null)
         {
             foreach (var source in profile.SourceRefs)

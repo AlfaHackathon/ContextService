@@ -31,21 +31,6 @@
     PRIMARY KEY(category,entity_id,revision_id), UNIQUE(category,entity_id,known_ticks));
 CREATE INDEX IF NOT EXISTS ix_knowledge_asof ON knowledge_revisions(category,known_ticks);</value>
   </data>
-  <data name="FindKnowledgeHash" xml:space="preserve">
-    <value>SELECT hash FROM knowledge_revisions WHERE category=@c AND entity_id=@e AND revision_id=@r</value>
-  </data>
-  <data name="InsertKnowledge" xml:space="preserve">
-    <value>INSERT INTO knowledge_revisions VALUES(@c,@e,@r,@t,@h,@p)</value>
-  </data>
-  <data name="LatestKnowledge" xml:space="preserve">
-    <value>SELECT k.payload FROM knowledge_revisions k WHERE category=@c AND known_ticks &lt;= @t
-AND NOT EXISTS(SELECT 1 FROM knowledge_revisions newer WHERE newer.category=k.category
-    AND newer.entity_id=k.entity_id AND newer.known_ticks &lt;= @t AND newer.known_ticks&gt;k.known_ticks)
-ORDER BY entity_id</value>
-  </data>
-  <data name="AllKnowledge" xml:space="preserve">
-    <value>SELECT payload FROM knowledge_revisions WHERE category=@c AND known_ticks &lt;= @t ORDER BY entity_id,known_ticks</value>
-  </data>
   <data name="MaterialSchema" xml:space="preserve">
     <value>CREATE TABLE IF NOT EXISTS material_versions (
     material_id TEXT NOT NULL, version_id TEXT NOT NULL,

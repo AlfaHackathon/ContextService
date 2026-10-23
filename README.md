@@ -11,16 +11,22 @@
 | `Api/Program.cs`, `Extensions` | Композиция приложения, DI, PostgreSQL Dapper settings, общие HTTP clients и worker lifetime |
 | `Api/Controllers`, `Middleware` | Настоящие MVC `[ApiController]`/`HttpGet`/`HttpPost`, org `BaseController`, internal authentication и прежний JSON ошибок |
 | `Api/Contracts/*` | Wire DTO по материалам, знаниям, поиску, retrieval, изменениям и компаниям |
-| `Api/Services` | Материалы и валидация; knowledge/group expansion; поиск, retrieval и бюджеты; projection orchestration |
-| `Api/Repositories` | PostgreSQL материалы через org `IDapperContext`/`QueryObject`, temporal knowledge, change feed, evidence inventory и отметки поисковой проекции |
-| `Api/Resources`, `Migrations` | 23 PostgreSQL SQL-ресурса `.resx`, типизированный доступ, FluentMigrator `AddMigrations`/`UseMigrations` |
+| `Api/Services` | Материалы и валидация; CompanyService HTTP client; поиск, retrieval и бюджеты; projection orchestration |
+| `Api/Repositories` | PostgreSQL материалы через org `IDapperContext`/`QueryObject`, material change feed, evidence inventory и отметки поисковой проекции |
+| `Api/Resources`, `Migrations` | PostgreSQL SQL-ресурсы `.resx`, типизированный доступ, FluentMigrator `AddMigrations`/`UseMigrations` |
 | `Api/Common`, `Models`, `Workers` | Канонический JSON/validation, внутренние модели, фоновое обновление Qdrant |
 
 Направление зависимостей: HTTP → Services → Repositories/transport. Репозитории используют
 Contracts/Common/Resources и не зависят от application-сервисов. SQL исполняется только
 репозиториями/миграциями, с прежними параметрами и транзакциями; ресурсы включены в DLL.
-`RetrievalClient`, `SearchProjectionService` и repository отметок создаются через DI.
+`RetrievalClient`, `SearchProjectionService`, `CompanyKnowledgeClient` и repository отметок создаются через DI.
 PostgreSQL хранит канонические версии; Qdrant остаётся перестраиваемой поисковой базой. SQLite fallback отсутствует.
+Компаниями, группами, профилями людей и разрешениями владеет CompanyService.
+ContextService читает их версии через HTTP для поиска и сборки контекста.
+`CompanyService__BaseUrl` задаёт корень host CompanyService, например `http://company-service:8080`;
+`CompanyService__InternalSecret` переопределяет общий `Internal__Secret` для этих вызовов.
+Недоступность владельца возвращает ошибку. Старый `knowledge_revisions` сохраняется миграцией
+для сохранности прежних данных, но больше не читается и не записывается приложением.
 Каждый Sync проверяет наличие коллекции и сверяет фактические point IDs/hash с каноническими
 записями и PostgreSQL-отметками (до 256 IDs за запрос, без vectors). Потеря коллекции или части
 точек восстанавливается следующим Sync/worker даже при сохранённых отметках и без перезапуска.
@@ -63,11 +69,12 @@ loopback HTTP через общий пакет, включая JSON bytes, heade
 company/time версии, с полным текстом и проверяемыми hashes; превышение бюджета возвращает ошибку.
 Coverage описывает доступный корпус, а не полноту всех реальных обязательств компании.
 
-Каждая успешная новая material/knowledge revision записывает `context_changes` в той же PostgreSQL
+Каждая успешная новая material revision записывает `context_changes` в той же PostgreSQL
 транзакции. Повтор immutable version нового события не создаёт. `GET /internal/changes?after=N`
 возвращает следующую запись; долговечный consumer cursor принадлежит InsightService.
-SourceChangePump в AgentService преобразует запись в пересмотр зависимых вопросов или обновление
-групповых/ролевых представлений. До появления вопросов старые материалы не запускают массовый LLM-анализ.
+CompanyService ведёт отдельный журнал изменений своих профилей и групп. Потребитель использует
+независимые долговечные cursors этих двух журналов. До появления вопросов старые материалы
+не запускают массовый LLM-анализ.
 
 Первый .NET 10 срез хранения исходных материалов и сборки контекста компании. Канонические данные живут в PostgreSQL через общий DapperContext. Код не содержит fixtures или готовых выводов. Семантический поиск по всему реестру и реальные документные ACL в этот срез не входят.
 
@@ -130,6 +137,6 @@ PostgreSQL использует параметризованные SQL из `.re
 
 `POST /internal/context/retrieve` выполняет bounded retrieval загруженных разрешённых оригиналов с `companyId/asOf/queries/limit`, optional `scope=company|market` и `requiredMaterialIds` (до 6). Новейшая известная версия выбранного материала возвращается рядом с историческим попаданием; все версии с равным максимальным knownAt сохраняются для сравнения, opaque version ID не задаёт временной порядок. Превышение бюджета даёт 422 без обрезки. `/internal/search` — выбранный Qdrant, lexical/dense RRF и настроенный reranker; `relatedVersions` у попадания содержит точные refs новых известных версий, отдельно от refs текста старого excerpt. `/internal/search/sync` восстанавливает индекс из канонических материалов и профилей.
 
-`/internal/companies`, `/internal/groups`, `/internal/roles` хранят подтверждённые версии контекста и явные read grants. `/internal/groups/{id}?asOf=` раскрывает вложенные пути, сохраняет собственные компании корневой/промежуточной группы и отмечает циклы/пропуски. Это доверенная внутренняя граница; членство не устанавливает владение или право доступа. `/internal/changes?after=` выдаёт транзакционный журнал новых material/knowledge версий для durable обработки AgentService.
+Совместимые `/internal/companies`, `/internal/groups`, `/internal/roles`, `/internal/people` передают запросы в CompanyService `/company-service/internal/knowledge/*`. Проверка версий, раскрытие групп и read grants выполняются владельцем. Новые клиенты обращаются к CompanyService напрямую. ContextService сохраняет материалы и их evidence; `/internal/changes?after=` выдаёт только журнал материалов.
 
 Material version может включать optional `provenance={acquisition,sourceUrl,retrievedAt,textCompleteness,originVersionId,locator}`. Acquisition: `uploaded`, `event_payload`, `news_service`; полнота: `full`, `lead`, `excerpt`, `unknown`. Для загруженного локального PDF укажите uploaded/excerpt и страницу/OCR в locator: это не результат интернет-поиска. RetrievedAt не может быть позже knownAt; ссылка допускает только HTTP(S) без credentials. Для news_service требуется тот же originVersionId, что и versionId проекции; оригинальные версии не перенумеровываются ContextService. Получение таких оригиналов требует реального upstream контракта — существующий parser его пока не предоставляет. Исторические записи без provenance остаются без него; null не меняет старый canonical hash. Изменение метаданных существующей версии запрещено как изменение текста.

@@ -14,10 +14,10 @@ public sealed class SearchProjectionService : IDisposable
     private readonly RetrievalClient client;
     private readonly IConfiguration config;
     private readonly IMaterialRepository materials;
-    private readonly KnowledgeService knowledge;
+    private readonly CompanyKnowledgeClient knowledge;
     private readonly SearchProjectionRepository projection;
     private readonly SemaphoreSlim syncLock = new(1);
-    public SearchProjectionService(RetrievalClient client, SearchProjectionRepository projection, IConfiguration config, IMaterialRepository materials, KnowledgeService knowledge)
+    public SearchProjectionService(RetrievalClient client, SearchProjectionRepository projection, IConfiguration config, IMaterialRepository materials, CompanyKnowledgeClient knowledge)
     {
         this.client = client;
         this.config = config;
@@ -40,7 +40,12 @@ public sealed class SearchProjectionService : IDisposable
             // Durable marks alone cannot prove the Qdrant collection still contains its points.
             // Reconcile the actual projection before skipping entries; failed upserts remain retryable.
             var entries = new List<IndexEntry>();
-            foreach (var p in (await knowledge.CompanyVersions()))
+            var profiles = await knowledge.CompanyVersions(ct);
+            if (profiles.Error is { } companyError)
+            {
+                return new(companyError);
+            }
+            foreach (var p in profiles.Content!)
             {
                 entries.Add(new IndexEntry(RetrievalEncoding.Stable("profile", p.CompanyId.ToString(), p.RevisionId),
                     string.Join(' ', new[] { p.Name, p.Description }.Concat(p.IndustryCodes).Concat(p.Exposures)),

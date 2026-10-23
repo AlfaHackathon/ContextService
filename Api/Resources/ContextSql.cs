@@ -9,10 +9,6 @@ public static class ContextSql
     public static string AppendChange => Get(nameof(AppendChange));
     public static string ReadNextChange => Get(nameof(ReadNextChange));
     public static string KnowledgeSchema => Get(nameof(KnowledgeSchema));
-    public static string FindKnowledgeHash => Get(nameof(FindKnowledgeHash));
-    public static string InsertKnowledge => Get(nameof(InsertKnowledge));
-    public static string LatestKnowledge => Get(nameof(LatestKnowledge));
-    public static string AllKnowledge => Get(nameof(AllKnowledge));
     public static string MaterialSchema => Get(nameof(MaterialSchema));
     public static string FindMaterialIdentity => Get(nameof(FindMaterialIdentity));
     public static string InsertMaterial => Get(nameof(InsertMaterial));

@@ -21,7 +21,8 @@ public sealed class SearchProjectionRecoveryTests : PostgresTestBase
         var materials = new MaterialService(repository, 120000);
         var time = DateTimeOffset.Parse("2026-10-24T08:00:00Z");
         var original = await materials.Save(new("terms", "1", "fixture", "market", "Terms", "Original terms", time, time, null, [], [])).RequireContentAsync();
-        var knowledge = new KnowledgeService(new KnowledgeStore(Database), materials);
+        using var company = new CompanyKnowledgeFixture();
+        var knowledge = company.Client;
         using var handler = new QdrantHandler();
         using var http = new HttpClient(handler, false);
         using var projection = CreateProjection(http, repository, knowledge);
@@ -58,7 +59,8 @@ public sealed class SearchProjectionRecoveryTests : PostgresTestBase
             var original = await materials.Save(new($"long-terms-{i}", "1", "fixture", "market", "Terms", new string('x', 1500 * 90), time, time, null, [], [])).RequireContentAsync();
             hashes.Add(original.MaterialId, original.ContentHash);
         }
-        var knowledge = new KnowledgeService(new KnowledgeStore(Database), materials);
+        using var company = new CompanyKnowledgeFixture();
+        var knowledge = company.Client;
         using var handler = new QdrantHandler();
         using var http = new HttpClient(handler, false);
         using var projection = CreateProjection(http, repository, knowledge, dense: true);
@@ -96,7 +98,8 @@ public sealed class SearchProjectionRecoveryTests : PostgresTestBase
         var materials = new MaterialService(repository, 120000);
         var time = DateTimeOffset.Parse("2026-10-24T08:00:00Z");
         await materials.Save(new("terms", "1", "fixture", "market", "Terms", "Original terms", time, time, null, [], [])).RequireContentAsync();
-        var knowledge = new KnowledgeService(new KnowledgeStore(Database), materials);
+        using var company = new CompanyKnowledgeFixture();
+        var knowledge = company.Client;
         using var handler = new QdrantHandler { Failure = failure };
         using var http = new HttpClient(handler, false);
         using var projection = CreateProjection(http, repository, knowledge);
@@ -118,7 +121,7 @@ public sealed class SearchProjectionRecoveryTests : PostgresTestBase
         Assert.Equal(0, (await projection.Sync(CancellationToken.None).RequireContentAsync()).Indexed);
     }
 
-    private SearchProjectionService CreateProjection(HttpClient http, PostgresMaterialRepository repository, KnowledgeService knowledge, bool dense = false)
+    private SearchProjectionService CreateProjection(HttpClient http, PostgresMaterialRepository repository, CompanyKnowledgeClient knowledge, bool dense = false)
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {

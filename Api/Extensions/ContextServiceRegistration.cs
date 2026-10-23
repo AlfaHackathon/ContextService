@@ -39,8 +39,19 @@ public static class ContextServiceRegistration
         services.AddSingleton(sp => new MaterialService(sp.GetRequiredService<IMaterialRepository>(),
             configuration.GetValue<int?>("Context:MaxCharacters") ?? 120000));
         services.AddSingleton<IMaterialService>(sp => sp.GetRequiredService<MaterialService>());
-        services.AddSingleton<KnowledgeStore>();
-        services.AddSingleton<KnowledgeService>();
+        services.AddAlfaHttpClient(new CompanyHttpSettings
+        {
+            BaseAddress = string.IsNullOrWhiteSpace(configuration["CompanyService:BaseUrl"]) ? "" : RetrievalClient.SafeUri(configuration["CompanyService:BaseUrl"]!.TrimEnd('/') + "/").ToString(),
+            Timeout = TimeSpan.FromSeconds(15),
+            AutoRedirect = false,
+            DefaultHeaders = headers => headers.Add("X-Internal-Secret", configuration["CompanyService:InternalSecret"] ?? configuration["Internal:Secret"] ?? "")
+        }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2)
+        });
+        services.AddSingleton<RetrievalTransport<CompanyHttpSettings>>();
+        services.AddSingleton<CompanyKnowledgeClient>();
         services.AddSingleton<ContextChanges>();
         services.AddSingleton<ContextChangeService>();
         var qdrant = new QdrantHttpSettings

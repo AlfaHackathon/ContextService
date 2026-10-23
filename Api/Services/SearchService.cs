@@ -15,9 +15,9 @@ public sealed class SearchService
     private readonly RetrievalClient client;
     private readonly SearchProjectionService projection;
     private readonly IMaterialRepository materials;
-    private readonly KnowledgeService knowledge;
+    private readonly CompanyKnowledgeClient knowledge;
     private readonly IConfiguration config;
-    public SearchService(RetrievalClient client, SearchProjectionService projection, IConfiguration config, IMaterialRepository materials, KnowledgeService knowledge)
+    public SearchService(RetrievalClient client, SearchProjectionService projection, IConfiguration config, IMaterialRepository materials, CompanyKnowledgeClient knowledge)
     {
         this.config = config;
         this.materials = materials;
@@ -149,7 +149,12 @@ public sealed class SearchService
         using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
         var hits = new List<SearchHit>();
         var texts = new List<string>();
-        var profiles = (await knowledge.Companies(request.AsOf)).ToDictionary(x => x.CompanyId);
+        var companyProfiles = await knowledge.Companies(request.AsOf, ct);
+        if (companyProfiles.Error is { } companyError)
+        {
+            return new(companyError);
+        }
+        var profiles = companyProfiles.Content!.ToDictionary(x => x.CompanyId);
         var knownVersions = (request.PublicOnly ||
                 request.CompanyId.HasValue) ? (await materials.ListKnown(request.AsOf)).GroupBy(m => m.MaterialId).ToDictionary(g => g.Key, g => g.Where(m => m.KnownAt == g.Max(x => x.KnownAt)).ToArray()) : new Dictionary<string, MaterialVersion[]>();
         foreach (var row in json.RootElement.GetProperty("result").GetProperty("points").EnumerateArray())
