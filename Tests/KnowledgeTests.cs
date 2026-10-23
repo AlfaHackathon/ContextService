@@ -2,7 +2,6 @@ using ContextService.Contracts.Knowledge;
 using ContextService.Models;
 using ContextService.Repositories;
 using ContextService.Services;
-using ContextService;
 using Xunit;
 
 public sealed class KnowledgeTests : PostgresTestBase
@@ -23,17 +22,22 @@ public sealed class KnowledgeTests : PostgresTestBase
     [Fact]
     public async Task Nested_union_keeps_root_own_companies_and_deduplicates_multiple_paths()
     {
-        var a = Guid.NewGuid(); var b = Guid.NewGuid();
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
         await service.SaveGroup(new("nested", "1", "Nested", Time, [new("company", a.ToString(), [evidence]), new("company", b.ToString(), [evidence])], [evidence]));
         await service.SaveGroup(new("root", "1", "Root", Time, [new("company", a.ToString(), [evidence]), new("group", "nested", [evidence])], [evidence]));
         var result = (await service.Expand("root", Time));
-        Assert.True(result.Complete); Assert.Equal(2, result.CompanyIds.Length); Assert.Equal(3, result.Paths.Length);
+        Assert.True(result.Complete);
+        Assert.Equal(2, result.CompanyIds.Length);
+        Assert.Equal(3, result.Paths.Length);
         Assert.Equal(2, result.Paths.Count(x => x.CompanyId == a));
     }
     [Fact]
     public async Task Three_levels_preserve_root_and_intermediate_own_obligations()
     {
-        var rootOwner = Guid.NewGuid(); var intermediateOwner = Guid.NewGuid(); var leafOwner = Guid.NewGuid();
+        var rootOwner = Guid.NewGuid();
+        var intermediateOwner = Guid.NewGuid();
+        var leafOwner = Guid.NewGuid();
         await service.SaveGroup(new("leaf", "1", "Leaf", Time, [new("company", leafOwner.ToString(), [evidence])], [evidence]));
         await service.SaveGroup(new("middle", "1", "Middle", Time,
             [new("company", intermediateOwner.ToString(), [evidence]), new("company", leafOwner.ToString(), [evidence]), new("group", "leaf", [evidence])], [evidence]));
@@ -52,7 +56,8 @@ public sealed class KnowledgeTests : PostgresTestBase
     {
         await service.SaveGroup(new("root", "1", "Root", Time, [new("group", "missing", [evidence])], [evidence]));
         var before = (await service.Expand("root", Time));
-        Assert.False(before.Complete); Assert.Equal(["missing"], before.MissingGroups);
+        Assert.False(before.Complete);
+        Assert.Equal(["missing"], before.MissingGroups);
         await service.SaveGroup(new("missing", "1", "Later", Time.AddDays(1), [new("group", "root", [evidence])], [evidence]));
         Assert.Equal(["missing"], (await service.Expand("root", Time)).MissingGroups);
         Assert.Single((await service.Expand("root", Time.AddDays(1))).Cycles);

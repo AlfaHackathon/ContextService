@@ -1,13 +1,13 @@
+using System.Reflection;
+using System.Text.Json;
 using ContextService.Common;
-using ContextService.Contracts.Materials;
 using ContextService.Contracts.Knowledge;
+using ContextService.Contracts.Materials;
 using ContextService.Models;
 using ContextService.Repositories;
 using ContextService.Resources;
 using ContextService.Services;
 using Npgsql;
-using System.Reflection;
-using System.Text.Json;
 using Xunit;
 
 public sealed class PostgresStorageTests : PostgresTestBase
@@ -20,7 +20,10 @@ public sealed class PostgresStorageTests : PostgresTestBase
     {
         Assert.Contains("ContextService.Resources.ContextSql.resources", typeof(ContextSql).Assembly.GetManifestResourceNames());
         foreach (var property in typeof(ContextSql).GetProperties(BindingFlags.Public | BindingFlags.Static))
+        {
             Assert.False(string.IsNullOrWhiteSpace((string?)property.GetValue(null)));
+        }
+
         var get = typeof(ContextSql).GetMethod("Get", BindingFlags.NonPublic | BindingFlags.Static)!;
         Assert.IsType<InvalidOperationException>(Assert.Throws<TargetInvocationException>(() => get.Invoke(null, ["missing_resource"])).InnerException);
     }
@@ -30,7 +33,7 @@ public sealed class PostgresStorageTests : PostgresTestBase
     {
         var service = new MaterialService(Repository(), 120000);
         var saved = await service.Save(Request);
-        var reopened = await Repository().Get(saved.MaterialId, saved.VersionId);
+        var reopened = await Repository().GetAsync(saved.MaterialId, saved.VersionId);
         Assert.Equal(saved.ContentHash, reopened!.ContentHash);
         Assert.Equal(known.UtcTicks, reopened.KnownAt.UtcTicks);
         Assert.Equal(JsonSerializer.Serialize(saved, ContextJson.Options), JsonSerializer.Serialize(reopened, ContextJson.Options));
@@ -53,7 +56,7 @@ public sealed class PostgresStorageTests : PostgresTestBase
         var request = Request;
         var service = new MaterialService(Repository(), 120000);
         await Assert.ThrowsAsync<PostgresException>(() => service.Save(request));
-        Assert.Null(await Repository().Get("atomic", "v1"));
+        Assert.Null(await Repository().GetAsync("atomic", "v1"));
         command.CommandText = "SELECT count(*) FROM material_companies";
         Assert.Equal(0L, await command.ExecuteScalarAsync());
         var knowledge = new KnowledgeStore(Database);
@@ -108,6 +111,8 @@ public sealed class PostgresStorageTests : PostgresTestBase
 
     private async Task<NpgsqlConnection> Open()
     {
-        var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(); return connection;
+        var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        return connection;
     }
 }

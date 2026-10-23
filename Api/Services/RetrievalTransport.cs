@@ -1,7 +1,7 @@
+using System.Text.Json;
 using AlfaHackaton.HttpClient.Common.Interfaces;
 using AlfaHackaton.HttpClient.Common.Models;
 using ContextService.Common;
-using System.Text.Json;
 
 namespace ContextService.Services;
 
@@ -21,10 +21,19 @@ public sealed class RetrievalTransport<TSettings>(IHttpClient<TSettings> client,
         await Send(request.Method, request.RequestUri!.ToString(), request.Content is null ? null : await request.Content.ReadAsByteArrayAsync(ct),
             (headers, contentHeaders) =>
             {
-                foreach (var header in request.Headers) headers.TryAddWithoutValidation(header.Key, header.Value);
+                foreach (var header in request.Headers)
+                {
+                    headers.TryAddWithoutValidation(header.Key, header.Value);
+                }
+
                 if (request.Content is not null && contentHeaders is not null)
+                {
                     foreach (var header in request.Content.Headers)
-                    { contentHeaders.Remove(header.Key); contentHeaders.TryAddWithoutValidation(header.Key, header.Value); }
+                    {
+                        contentHeaders.Remove(header.Key);
+                        contentHeaders.TryAddWithoutValidation(header.Key, header.Value);
+                    }
+                }
             }, ct);
     private async Task<HttpResponseMessage> Send(HttpMethod method, string uri, byte[]? body, HeaderApplier? headers, CancellationToken ct)
     {
@@ -35,7 +44,11 @@ public sealed class RetrievalTransport<TSettings>(IHttpClient<TSettings> client,
             RawData = body,
             HeadersApplier = (requestHeaders, contentHeaders) =>
             {
-                if (body is not null && contentHeaders is not null) contentHeaders.ContentType = new("application/json");
+                if (body is not null && contentHeaders is not null)
+                {
+                    contentHeaders.ContentType = new("application/json");
+                }
+
                 headers?.Invoke(requestHeaders, contentHeaders);
             }
         }, ct);

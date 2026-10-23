@@ -1,10 +1,9 @@
+using System.Net;
+using System.Text.Json;
 using ContextService.Contracts.Knowledge;
 using ContextService.Contracts.Materials;
 using ContextService.Repositories;
 using ContextService.Services;
-using System.Net;
-using System.Text.Json;
-using ContextService;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
@@ -25,21 +24,26 @@ public sealed class RetrievedContextTests : PostgresTestBase
         await materials.Save(new("terms", "3", "fixture", "company", "Terms", "Future margin 4", Time.AddSeconds(3), Time, "2", [company], []));
         var knowledge = new KnowledgeService(new KnowledgeStore(Database), materials);
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        { ["Qdrant:BaseUrl"] = "http://qdrant.fixture", ["Qdrant:Collection"] = "fixture" }).Build();
+        {
+            ["Qdrant:BaseUrl"] = "http://qdrant.fixture",
+            ["Qdrant:Collection"] = "fixture"
+        }).Build();
         using var client = new HttpClient(new QdrantHandler(old, company));
         var search = CreateSearch(client, config, repository, knowledge, Database);
         var service = new RetrievedContextService(materials, repository, knowledge, search, config);
         var ranked = await search.Search(new("terms", Time.AddSeconds(2), company, 1), CancellationToken.None);
         Assert.Equal(new[] { "10", "2" }, Assert.Single(ranked.Hits).RelatedVersions!.Select(v => v.VersionId).Order());
-        var result = await service.Get(new(company, news.MaterialId, news.VersionId, Time.AddSeconds(2), ["terms"], 1), CancellationToken.None);
+        var result = await service.GetAsync(new(company, news.MaterialId, news.VersionId, Time.AddSeconds(2), ["terms"], 1), CancellationToken.None);
         Assert.Equal(new[] { "1", "10", "2" }, result.Materials.Select(m => m.VersionId).Order());
         Assert.Contains(result.Materials, m => m.Text == "Corrected margin 3");
-        var historical = await service.Get(new(company, news.MaterialId, news.VersionId, Time, ["terms"], 1), CancellationToken.None);
+        var historical = await service.GetAsync(new(company, news.MaterialId, news.VersionId, Time, ["terms"], 1), CancellationToken.None);
         Assert.Equal("1", Assert.Single(historical.Materials).VersionId);
     }
 
     private sealed class Factory(HttpClient client) : IHttpClientFactory
-    { public HttpClient CreateClient(string name) => client; }
+    {
+        public HttpClient CreateClient(string name) => client;
+    }
 
     private static SearchService CreateSearch(HttpClient http, IConfiguration config, PostgresMaterialRepository repository,
         KnowledgeService knowledge, AlfaHackaton.DapperContext.Common.Interfaces.Dapper.IDapperContext database)
@@ -64,11 +68,14 @@ public sealed class RetrievedContextTests : PostgresTestBase
         var original = (await materials.Save(new("bank", "1", "fixture", "market", "Аналитика", new string('я', 25000), Time, Time, null, [], [])));
         var knowledge = new KnowledgeService(new KnowledgeStore(Database), materials);
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        { ["Qdrant:BaseUrl"] = "http://qdrant.fixture", ["Qdrant:Collection"] = "fixture" }).Build();
+        {
+            ["Qdrant:BaseUrl"] = "http://qdrant.fixture",
+            ["Qdrant:Collection"] = "fixture"
+        }).Build();
         using var client = new HttpClient(new QdrantHandler(original, company));
         var service = new RetrievedContextService(materials, repository, knowledge,
             CreateSearch(client, config, repository, knowledge, Database), config);
-        var result = await service.Get(new(company, news.MaterialId, news.VersionId, Time, ["bank"]), CancellationToken.None);
+        var result = await service.GetAsync(new(company, news.MaterialId, news.VersionId, Time, ["bank"]), CancellationToken.None);
         var returned = Assert.Single(result.Materials);
         Assert.Equal(original.Text, returned.Text);
         Assert.Equal(original.ContentHash, returned.ContentHash);
@@ -78,8 +85,16 @@ public sealed class RetrievedContextTests : PostgresTestBase
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            object result = request.Method == HttpMethod.Get ? new { status = "ok" } : new
-            { result = new { points = new[] { new { score = 1.0, payload = new { kind = "company", companyIds = new[] { company }, materialId = old.MaterialId, versionId = old.VersionId, hash = old.ContentHash, text = old.Text, sourceRefs = new[] { new SourceReference(old.MaterialId, old.VersionId, old.ContentHash) } } } } } };
+            object result = request.Method == HttpMethod.Get ? new
+            {
+                status = "ok"
+            } : new
+            {
+                result = new
+                {
+                    points = new[] { new { score = 1.0, payload = new { kind = "company", companyIds = new[] { company }, materialId = old.MaterialId, versionId = old.VersionId, hash = old.ContentHash, text = old.Text, sourceRefs = new[] { new SourceReference(old.MaterialId, old.VersionId, old.ContentHash) } } } }
+                }
+            };
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(result, MaterialService.Json)) });
         }
     }

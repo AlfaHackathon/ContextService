@@ -1,19 +1,18 @@
-using AlfaHackaton.Controllers.Controllers;
-using ContextService.Common;
-using ContextService.Controllers;
-using ContextService.Contracts.Materials;
-using ContextService.Extensions;
-using ContextService.Middleware;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using AlfaHackaton.Controllers.Controllers;
+using ContextService.Common;
+using ContextService.Contracts.Materials;
+using ContextService.Controllers;
+using ContextService.Extensions;
+using ContextService.Middleware;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 public sealed class MvcContractTests : PostgresTestBase
@@ -64,7 +63,10 @@ public sealed class MvcContractTests : PostgresTestBase
         Assert.Equal(now.UtcTicks, saved.KnownAt.UtcTicks);
         using var read = await client.GetAsync("/context-service/internal/material-versions/mvc/1");
         Assert.Equal(JsonSerializer.Serialize(saved, ContextJson.Options), JsonSerializer.Serialize(await read.Content.ReadFromJsonAsync<MaterialVersion>(), ContextJson.Options));
-        using var conflict = await client.PostAsJsonAsync("/context-service/internal/material-versions", request with { Text = "Changed" });
+        using var conflict = await client.PostAsJsonAsync("/context-service/internal/material-versions", request with
+        {
+            Text = "Changed"
+        });
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
         Assert.Equal("immutable_version_conflict", (await conflict.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         using var missing = await client.GetAsync("/context-service/internal/material-versions/missing/1");

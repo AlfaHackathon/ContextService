@@ -22,7 +22,7 @@ Contracts/Common/Resources и не зависят от application-сервис�
 `RetrievalClient`, `SearchProjectionService` и repository отметок создаются через DI.
 PostgreSQL хранит канонические версии; Qdrant остаётся перестраиваемой поисковой базой. SQLite fallback отсутствует.
 
-Реально используются NuGet `AlfaHackaton.Controllers` 1.4.0, `AlfaHackaton.DapperContext` 1.1.0,
+Реально используются NuGet `AlfaHackaton.Controllers` 1.4.0, `AlfaHackaton.DapperContext` 1.2.0,
 `AlfaHackaton.HttpClient` 1.1.1 и транзитивный `AlfaHackaton.Result`: controller success проходит
 через `BaseController.OkOrProblem`, persistence через `IDapperContext`, Qdrant/inference HTTP через
 `IHttpClient<TSettings>.Send`. Raw JSON bytes сохраняют прежние System.Text.Json контракты.

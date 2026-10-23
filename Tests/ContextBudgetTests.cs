@@ -1,7 +1,6 @@
 using ContextService.Contracts.Materials;
 using ContextService.Models;
 using ContextService.Services;
-using ContextService;
 using Xunit;
 
 public sealed class ContextBudgetTests

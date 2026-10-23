@@ -1,5 +1,5 @@
-using FluentMigrator;
 using ContextService.Resources;
+using FluentMigrator;
 
 namespace ContextService.Migrations;
 

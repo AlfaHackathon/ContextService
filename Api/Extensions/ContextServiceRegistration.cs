@@ -17,7 +17,10 @@ public static class ContextServiceRegistration
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         if (string.IsNullOrWhiteSpace(connectionString))
+        {
             throw new InvalidOperationException("ConnectionStrings:DefaultConnection must identify the PostgreSQL context database.");
+        }
+
         var database = new DapperSettings { ConnectionString = connectionString };
         services.AddDapper(database);
         services.AddMigrations(database, typeof(InitialContext).Assembly);
@@ -26,7 +29,10 @@ public static class ContextServiceRegistration
             {
                 options.SuppressMapClientErrors = true;
                 options.InvalidModelStateResponseFactory = _ => new BadRequestObjectResult(new
-                { code = "invalid_request", message = "The request body or parameters are invalid." });
+                {
+                    code = "invalid_request",
+                    message = "The request body or parameters are invalid."
+                });
             });
         services.AddSingleton<CompanyEvidenceRepository>();
         services.AddSingleton<IMaterialRepository, PostgresMaterialRepository>();
@@ -44,7 +50,10 @@ public static class ContextServiceRegistration
             AutoRedirect = false,
             DefaultHeaders = headers =>
             {
-                if (!string.IsNullOrWhiteSpace(configuration["Qdrant:ApiKey"])) headers.Add("api-key", configuration["Qdrant:ApiKey"]);
+                if (!string.IsNullOrWhiteSpace(configuration["Qdrant:ApiKey"]))
+                {
+                    headers.Add("api-key", configuration["Qdrant:ApiKey"]);
+                }
             }
         };
         services.AddAlfaHttpClient(qdrant);
@@ -56,7 +65,11 @@ public static class ContextServiceRegistration
         services.AddSingleton<SearchProjectionService>();
         services.AddSingleton<SearchService>();
         services.AddSingleton<RetrievedContextService>();
-        if (configuration.GetValue<bool>("Qdrant:WorkerEnabled")) services.AddHostedService<SearchProjectionWorker>();
+        if (configuration.GetValue<bool>("Qdrant:WorkerEnabled"))
+        {
+            services.AddHostedService<SearchProjectionWorker>();
+        }
+
         return services;
     }
 }

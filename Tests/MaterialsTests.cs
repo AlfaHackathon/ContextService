@@ -1,8 +1,6 @@
 using ContextService.Contracts.Materials;
 using ContextService.Models;
-using ContextService.Repositories;
 using ContextService.Services;
-using ContextService;
 using Xunit;
 
 public sealed class MaterialsTests : PostgresTestBase
@@ -21,7 +19,7 @@ public sealed class MaterialsTests : PostgresTestBase
         var first = (await Service().Save(request));
         Assert.Equal(first.ContentHash, (await Service().Save(request)).ContentHash);
         Assert.Empty((await Service().GetContext(new(company, "news", "v1", now))).Materials);
-        Assert.Equal(first.ContentHash, (await Service().Get("news", "v1")).ContentHash);
+        Assert.Equal(first.ContentHash, (await Service().GetAsync("news", "v1")).ContentHash);
         var conflict = (await Assert.ThrowsAsync<ApiException>(async () => await Service().Save(request with { Text = "Changed text" })));
         Assert.Equal(409, conflict.StatusCode);
     }
@@ -32,7 +30,11 @@ public sealed class MaterialsTests : PostgresTestBase
         var service = Service();
         Assert.Equal(409, (await Assert.ThrowsAsync<ApiException>(async () => await service.Save(Material(version: "v2") with { CorrectsVersionId = "v1" }))).StatusCode);
         await service.Save(Material());
-        await service.Save(Material(version: "v2") with { CorrectsVersionId = "v1", Text = "Corrected synthetic news" });
+        await service.Save(Material(version: "v2") with
+        {
+            CorrectsVersionId = "v1",
+            Text = "Corrected synthetic news"
+        });
         var bundle = (await Service().GetContext(new(company, "news", "v2", now)));
         Assert.Equal("v2", bundle.News.VersionId);
         Assert.Single(bundle.Materials, m => m.MaterialId == "news" && m.VersionId == "v1");
@@ -44,9 +46,18 @@ public sealed class MaterialsTests : PostgresTestBase
     {
         var service = Service();
         await service.Save(Material());
-        await service.Save(Material("allowed", kind: "company", scope: [company]) with { BankProfileIds = ["U_97"] });
-        await service.Save(Material("foreign", kind: "company", scope: [Guid.NewGuid()]) with { BankProfileIds = ["U_97"] });
-        await service.Save(Material("future", kind: "company", scope: [company]) with { KnownAt = now.AddDays(1) });
+        await service.Save(Material("allowed", kind: "company", scope: [company]) with
+        {
+            BankProfileIds = ["U_97"]
+        });
+        await service.Save(Material("foreign", kind: "company", scope: [Guid.NewGuid()]) with
+        {
+            BankProfileIds = ["U_97"]
+        });
+        await service.Save(Material("future", kind: "company", scope: [company]) with
+        {
+            KnownAt = now.AddDays(1)
+        });
         await service.Save(Material("market", kind: "market"));
         var context = (await service.GetContext(new(company, "news", "v1", now)));
         Assert.Equal(["allowed", "market"], context.Materials.Select(m => m.MaterialId).Order().ToArray());
@@ -78,17 +89,31 @@ public sealed class MaterialsTests : PostgresTestBase
         var other = Guid.NewGuid();
         var r = Material(scope: [company, other]);
         var first = (await Service().Save(r));
-        var same = (await Service().Save(r with { CompanyIds = [other, company, company], KnownAt = now.ToOffset(TimeSpan.FromHours(3)), BankProfileIds = [] }));
+        var same = (await Service().Save(r with
+        {
+            CompanyIds = [other, company, company],
+            KnownAt = now.ToOffset(TimeSpan.FromHours(3)),
+            BankProfileIds = []
+        }));
         Assert.Equal(first.ContentHash, same.ContentHash);
     }
 
     [Fact]
     public async Task UploadProvenanceSurvivesRestartAndCannotBecomeWebAcquisitionOrSilentMetadataChange()
     {
-        var request = Material() with { Provenance = new("uploaded", null, now, "excerpt", null, "bank-report.pdf page 1 OCR") };
+        var request = Material() with
+        {
+            Provenance = new("uploaded", null, now, "excerpt", null, "bank-report.pdf page 1 OCR")
+        };
         var first = (await Service().Save(request));
-        Assert.Equal(request.Provenance, (await Service().Get("news", "v1")).Provenance);
-        Assert.Equal(first.ContentHash, (await Service().Save(request with { Provenance = request.Provenance! with { RetrievedAt = now.ToOffset(TimeSpan.FromHours(3)) } })).ContentHash);
+        Assert.Equal(request.Provenance, (await Service().GetAsync("news", "v1")).Provenance);
+        Assert.Equal(first.ContentHash, (await Service().Save(request with
+        {
+            Provenance = request.Provenance! with
+            {
+                RetrievedAt = now.ToOffset(TimeSpan.FromHours(3))
+            }
+        })).ContentHash);
         Assert.Equal(409, (await Assert.ThrowsAsync<ApiException>(async () => await Service().Save(request with { Provenance = request.Provenance! with { TextCompleteness = "full" } }))).StatusCode);
         Assert.Equal(400, (await Assert.ThrowsAsync<ApiException>(async () => await Service().Save(Material("bad-origin") with { Provenance = new("news_service", "https://news.example/source", now, "full", "other-version") }))).StatusCode);
         Assert.Equal(400, (await Assert.ThrowsAsync<ApiException>(async () => await Service().Save(Material("future-retrieval") with { Provenance = new("uploaded", null, now.AddTicks(1), "full") }))).StatusCode);
@@ -98,7 +123,20 @@ public sealed class MaterialsTests : PostgresTestBase
     public async Task AbsentProvenanceKeepsLegacyCanonicalHash()
     {
         var request = Material();
-        var legacyJson = System.Text.Json.JsonSerializer.Serialize(new { request.MaterialId, request.VersionId, request.SourceId, request.Kind, request.Title, request.Text, request.KnownAt, request.PublishedAt, request.CorrectsVersionId, request.CompanyIds, request.BankProfileIds }, MaterialService.Json);
+        var legacyJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            request.MaterialId,
+            request.VersionId,
+            request.SourceId,
+            request.Kind,
+            request.Title,
+            request.Text,
+            request.KnownAt,
+            request.PublishedAt,
+            request.CorrectsVersionId,
+            request.CompanyIds,
+            request.BankProfileIds
+        }, MaterialService.Json);
         var legacyHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(legacyJson)));
         Assert.Equal(legacyHash, (await Service().Save(request)).ContentHash);
     }
@@ -106,7 +144,11 @@ public sealed class MaterialsTests : PostgresTestBase
     [Fact]
     public async Task CurrentNewsEventMayContainOnlyTitleButCannotClaimFullOriginal()
     {
-        var request = Material() with { Text = "", Provenance = new("event_payload", null, now, "lead", null, "tass-external-id") };
+        var request = Material() with
+        {
+            Text = "",
+            Provenance = new("event_payload", null, now, "lead", null, "tass-external-id")
+        };
         var saved = (await Service().Save(request));
         Assert.Equal("", saved.Text);
         Assert.Equal("lead", saved.Provenance!.TextCompleteness);

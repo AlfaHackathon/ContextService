@@ -8,6 +8,8 @@ public static class IdentifierValidation
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 200 || value != value.Trim() ||
             value.Any(c => char.IsControl(c) || c is '/' or '\\'))
+        {
             throw new ApiException(400, "invalid_id", $"{name} must be a nonempty bounded path-safe identifier.");
+        }
     }
 }

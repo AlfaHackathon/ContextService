@@ -37,7 +37,11 @@ public abstract class PostgresTestBase : IAsyncLifetime
     protected PostgresMaterialRepository Repository() => new(Database, new CompanyEvidenceRepository(Database));
     public async Task DisposeAsync()
     {
-        if (string.IsNullOrEmpty(schema)) return;
+        if (string.IsNullOrEmpty(schema))
+        {
+            return;
+        }
+
         await using var connection = new NpgsqlConnection(administrativeConnection);
         await connection.OpenAsync();
         await using var command = new NpgsqlCommand($"DROP DATABASE {schema} WITH (FORCE)", connection);

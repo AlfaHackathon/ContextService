@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.Json;
 using AlfaHackaton.HttpClient;
 using ContextService.Services;
 using ContextService.Settings;
@@ -5,8 +7,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using System.Net;
-using System.Text.Json;
 using Xunit;
 
 public sealed class OrganizationHttpClientTests
@@ -26,7 +26,13 @@ public sealed class OrganizationHttpClientTests
             using var memory = new MemoryStream();
             await context.Request.Body.CopyToAsync(memory);
             received = memory.ToArray();
-            return Results.Json(new { result = new { points = Array.Empty<object>() } });
+            return Results.Json(new
+            {
+                result = new
+                {
+                    points = Array.Empty<object>()
+                }
+            });
         });
         app.MapGet("/redirect", () => Results.Redirect("/points/query"));
         app.MapGet("/wait", async (CancellationToken ct) => { await Task.Delay(10000, ct); return Results.Ok(); });
@@ -44,7 +50,12 @@ public sealed class OrganizationHttpClientTests
             services.AddTransient<RetrievalTransport<QdrantHttpSettings>>();
             using var provider = services.BuildServiceProvider();
             var transport = provider.GetRequiredService<RetrievalTransport<QdrantHttpSettings>>();
-            var body = new { query = "я", @using = "lexical", limit = 12 };
+            var body = new
+            {
+                query = "я",
+                @using = "lexical",
+                limit = 12
+            };
             using var response = await transport.PostAsJsonAsync("points/query", body, CancellationToken.None);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             Assert.Equal("synthetic-upstream-key", credential);
