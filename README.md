@@ -73,18 +73,6 @@ SourceChangePump в AgentService преобразует запись в пере
 
 ## Восстановление пакетов
 
-Для сборки без токена из корня общего workspace:
-
-```powershell
-./cluster/tools/Build-OrganizationPackages.ps1
-```
-
-Скрипт получает неизменённые исходники шести общих библиотек из открытых репозиториев
-AlfaHackathon на закреплённых коммитах, собирает настоящие NuGet-пакеты и оба сервиса.
-Generated config и отдельный cache находятся в `.artifacts`; SHA256 пакетов и commit IDs
-сохраняются в provenance. Это явная сборка из исходников без GitHub Packages.
-Подробности и повторные build/test команды — в `../cluster/tools/README.md`.
-
 `NuGet.config` использует штатный GitHub Packages feed организации:
 `https://nuget.pkg.github.com/AlfaHackathon/index.json`. Mapping `AlfaHackaton.*`
 закрепляет общие пакеты за GitHub; остальные зависимости берутся из nuget.org.
