@@ -135,6 +135,30 @@ PostgreSQL использует параметризованные SQL из `.re
 
 ## Текущий поиск, знания и происхождение
 
+Inference HTTP использует независимо настроенные `Embeddings__BaseUrl` и `Reranker__BaseUrl`
+(корень API, включая `/v1`, без суффиксов `/embeddings` и `/rerank`).
+`Embeddings__Model` и `Reranker__Model` передаются провайдеру без подмены alias:
+задайте реальные served model IDs, проверенные оператором у выбранного endpoint.
+Имена из Development-конфигурации не доказывают, что модели загружены удалённым сервером.
+Для E5-small ожидаются `Embeddings__Dimensions=384`, `Embeddings__QueryPrefix="query: "`
+и `Embeddings__PassagePrefix="passage: "`; размер вектора проверяется на ответе.
+
+Опциональные `Embeddings__ApiKey` и `Reranker__ApiKey` задаются через окружение/secret store
+и отправляются как Bearer только в соответствующем запросе. Пустое значение не добавляет
+Authorization; embedding-ключ не используется как fallback для rerank или Qdrant.
+Не записывайте реальные ключи в файлы репозитория.
+
+Для Infinity задайте `Reranker__RawScores=true`, чтобы запросить raw logits: в его
+[официальной схеме](https://github.com/michaelfeil/infinity/blob/main/libs/infinity_emb/infinity_emb/fastapi_schemas/pymodels.py)
+`raw_scores` по умолчанию false. Если настройка отсутствует, поле не отправляется,
+сохраняя прежний запрос для других совместимых провайдеров. Значения score, включая
+отрицательные, сохраняются без sigmoid/нормализации и сортируются по убыванию;
+это не вероятности. Rerank получает исходный query и тексты без E5-префиксов,
+`top_n` равен всему переданному набору кандидатов. Ответ сопоставляется с исходными
+документами по `index`, затем применяется пользовательский limit. Повторные,
+пропущенные/неверные индексы, неверные размерности и нечисловые/бесконечные значения
+дают 502; HTTP-отказ upstream даёт 503 без включения response body в ошибку.
+
 `POST /internal/context/retrieve` выполняет bounded retrieval загруженных разрешённых оригиналов с `companyId/asOf/queries/limit`, optional `scope=company|market` и `requiredMaterialIds` (до 6). Новейшая известная версия выбранного материала возвращается рядом с историческим попаданием; все версии с равным максимальным knownAt сохраняются для сравнения, opaque version ID не задаёт временной порядок. Превышение бюджета даёт 422 без обрезки. `/internal/search` — выбранный Qdrant, lexical/dense RRF и настроенный reranker; `relatedVersions` у попадания содержит точные refs новых известных версий, отдельно от refs текста старого excerpt. `/internal/search/sync` восстанавливает индекс из канонических материалов и профилей.
 
 Совместимые `/internal/companies`, `/internal/groups`, `/internal/roles`, `/internal/people` передают запросы в CompanyService `/company-service/internal/knowledge/*`. Проверка версий, раскрытие групп и read grants выполняются владельцем. Новые клиенты обращаются к CompanyService напрямую. ContextService сохраняет материалы и их evidence; `/internal/changes?after=` выдаёт только журнал материалов.
