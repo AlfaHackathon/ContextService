@@ -24,7 +24,7 @@ public sealed class RetrievedContextTests : PostgresTestBase
         using var companyKnowledge = new CompanyKnowledgeFixture();
         var knowledge = companyKnowledge.Client;
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Qdrant:BaseUrl"] = "http://qdrant.fixture", ["Qdrant:Collection"] = "fixture" }).Build();
-        using var client = new HttpClient(new QdrantHandler(old, company));
+        using var client = new HttpClient(new QdrantHandler(old));
         var search = CreateSearch(client, config, repository, knowledge, Database);
         var service = new RetrievedContextService(materials, repository, knowledge, search, config);
         var ranked = await (search.Search(new("terms", Time.AddSeconds(2), company, 1), CancellationToken.None)).RequireContentAsync();
@@ -34,6 +34,87 @@ public sealed class RetrievedContextTests : PostgresTestBase
         Assert.Contains(result.Materials, m => m.Text == "Corrected margin 3");
         var historical = await (service.GetAsync(new(company, news.MaterialId, news.VersionId, Time, ["terms"], 1), CancellationToken.None)).RequireContentAsync();
         Assert.Equal("1", Assert.Single(historical.Materials).VersionId);
+    }
+
+    [Theory]
+    [InlineData("company")]
+    [InlineData("market")]
+    public async Task CompanyCorrectionsUseNewestVisibleVersionsBeforeNewerForeignScope(string kind)
+    {
+        var repository = Repository();
+        var materials = new MaterialService(repository, 120000);
+        var company = Guid.NewGuid();
+        var otherCompany = Guid.NewGuid();
+        var news = await materials.Save(new("news", "1", "fixture", "news", "Event", "Public event", Time, Time, null, [], [])).RequireContentAsync();
+        var old = await materials.Save(new("terms", "1", "fixture", kind, "Terms", "Old margin 2", Time, Time, null, [company], [])).RequireContentAsync();
+        var correction = await materials.Save(new("terms", "2", "fixture", kind, "Terms", "Corrected margin 3", Time.AddSeconds(1), Time, "1", [company], [])).RequireContentAsync();
+        var equalTime = await materials.Save(new("terms", "10", "fixture", kind, "Terms", "Equal-time margin 3.5", Time.AddSeconds(1), Time, "2", [company], [])).RequireContentAsync();
+        await materials.Save(new("terms", "3", "fixture", kind, "Terms", "Foreign margin 4", Time.AddSeconds(2), Time, "2", [otherCompany], [])).RequireContentAsync();
+        await materials.Save(new("terms", "4", "fixture", kind, "Terms", "Future margin 5", Time.AddSeconds(4), Time, "2", [company], [])).RequireContentAsync();
+        using var companyKnowledge = new CompanyKnowledgeFixture();
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Qdrant:Collection"] = "fixture" }).Build();
+        using var http = new HttpClient(new QdrantHandler(old));
+        var search = CreateSearch(http, config, repository, companyKnowledge.Client, Database);
+
+        var ranked = await search.Search(new("terms", Time.AddSeconds(3), company, 1), CancellationToken.None).RequireContentAsync();
+
+        var hit = Assert.Single(ranked.Hits);
+        Assert.Equal(old.VersionId, hit.VersionId);
+        Assert.Equal(new[] { new SourceReference(old.MaterialId, old.VersionId, old.ContentHash) }, hit.SourceRefs);
+        Assert.Equal(new[] { equalTime, correction }.Select(m => new SourceReference(m.MaterialId, m.VersionId, m.ContentHash)), hit.RelatedVersions!.OrderBy(r => r.VersionId));
+        var service = new RetrievedContextService(materials, repository, companyKnowledge.Client, search, config);
+        var retrieved = await service.GetAsync(new(company, news.MaterialId, news.VersionId, Time.AddSeconds(3), ["terms"], 1), CancellationToken.None).RequireContentAsync();
+        Assert.Equal(new[] { "1", "10", "2" }, retrieved.Materials.Select(m => m.VersionId).Order());
+        Assert.All(retrieved.Materials, m => Assert.Contains(company, m.CompanyIds));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublicCorrectionsIgnoreNewerPrivateScopeAndPreserveEqualTimeVersions(bool companySearch)
+    {
+        var repository = Repository();
+        var materials = new MaterialService(repository, 120000);
+        var company = Guid.NewGuid();
+        var old = await materials.Save(new("market", "1", "fixture", "market", "Market", "Old margin 2", Time, Time, null, [], [])).RequireContentAsync();
+        var correction = await materials.Save(new("market", "2", "fixture", "market", "Market", "Corrected margin 3", Time.AddSeconds(1), Time, "1", [], [])).RequireContentAsync();
+        var equalTime = await materials.Save(new("market", "10", "fixture", "market", "Market", "Equal-time margin 3.5", Time.AddSeconds(1), Time, "2", [], [])).RequireContentAsync();
+        await materials.Save(new("market", "3", "fixture", "market", "Market", "Private margin 4", Time.AddSeconds(2), Time, "2", [Guid.NewGuid()], [])).RequireContentAsync();
+        await materials.Save(new("market", "4", "fixture", "market", "Market", "Future margin 5", Time.AddSeconds(4), Time, "2", [], [])).RequireContentAsync();
+        using var companyKnowledge = new CompanyKnowledgeFixture();
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Qdrant:Collection"] = "fixture" }).Build();
+        using var http = new HttpClient(new QdrantHandler(old));
+        var search = CreateSearch(http, config, repository, companyKnowledge.Client, Database);
+
+        var ranked = await search.Search(new("market", Time.AddSeconds(3), companySearch ? company : null, 1, !companySearch), CancellationToken.None).RequireContentAsync();
+
+        var hit = Assert.Single(ranked.Hits);
+        Assert.Equal(old.VersionId, hit.VersionId);
+        Assert.Equal(new[] { equalTime, correction }.Select(m => new SourceReference(m.MaterialId, m.VersionId, m.ContentHash)), hit.RelatedVersions!.OrderBy(r => r.VersionId));
+        var historical = await search.Search(new("market", Time, companySearch ? company : null, 1, !companySearch), CancellationToken.None).RequireContentAsync();
+        Assert.Empty(Assert.Single(historical.Hits).RelatedVersions!);
+    }
+
+    [Theory]
+    [InlineData("company", true, false)]
+    [InlineData("market", true, false)]
+    [InlineData("market", true, true)]
+    [InlineData("news", false, false)]
+    [InlineData("news", false, true)]
+    public async Task SearchRejectsHitsOutsideCanonicalScope(string kind, bool scoped, bool publicOnly)
+    {
+        var repository = Repository();
+        var materials = new MaterialService(repository, 120000);
+        var company = Guid.NewGuid();
+        var original = await materials.Save(new("foreign", "1", "fixture", kind, "Foreign", "Ineligible material", Time, Time, null, scoped ? [Guid.NewGuid()] : [], [])).RequireContentAsync();
+        using var companyKnowledge = new CompanyKnowledgeFixture();
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Qdrant:Collection"] = "fixture" }).Build();
+        using var http = new HttpClient(new QdrantHandler(original));
+        var search = CreateSearch(http, config, repository, companyKnowledge.Client, Database);
+
+        var result = await search.Search(new("foreign", Time, publicOnly ? null : company, 1, publicOnly), CancellationToken.None).RequireContentAsync();
+
+        Assert.Empty(result.Hits);
     }
 
     private sealed class Factory(HttpClient client) : IHttpClientFactory
@@ -65,7 +146,7 @@ public sealed class RetrievedContextTests : PostgresTestBase
         using var companyKnowledge = new CompanyKnowledgeFixture();
         var knowledge = companyKnowledge.Client;
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Qdrant:BaseUrl"] = "http://qdrant.fixture", ["Qdrant:Collection"] = "fixture" }).Build();
-        using var client = new HttpClient(new QdrantHandler(original, company));
+        using var client = new HttpClient(new QdrantHandler(original));
         var service = new RetrievedContextService(materials, repository, knowledge, CreateSearch(client, config, repository, knowledge, Database), config);
         var result = await (service.GetAsync(new(company, news.MaterialId, news.VersionId, Time, ["bank"]), CancellationToken.None)).RequireContentAsync();
         var returned = Assert.Single(result.Materials);
@@ -74,7 +155,7 @@ public sealed class RetrievedContextTests : PostgresTestBase
         Assert.InRange(result.Coverage.Characters, 25000, 30000);
     }
 
-    private sealed class QdrantHandler(MaterialVersion old, Guid company) : HttpMessageHandler
+    private sealed class QdrantHandler(MaterialVersion old) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -94,11 +175,8 @@ public sealed class RetrievedContextTests : PostgresTestBase
                             score = 1.0,
                             payload = new
                             {
-                                kind = "company",
-                                companyIds = new[]
-                                {
-                                    company
-                                },
+                                kind = old.Kind,
+                                companyIds = old.CompanyIds,
                                 materialId = old.MaterialId,
                                 versionId = old.VersionId,
                                 hash = old.ContentHash,
