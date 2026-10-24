@@ -207,32 +207,53 @@ public sealed class SearchService
         if (hits.Count > 0 &&
             !string.IsNullOrWhiteSpace(config["Reranker:BaseUrl"]))
         {
-            using var reranked = await client.Inference.PostAsJsonAsync(RetrievalClient.SafeUri(config["Reranker:BaseUrl"]!.TrimEnd('/') + "/rerank"),
-                new
-                {
-                    model = config["Reranker:Model"],
-                    query = request.Query,
-                    documents = texts,
-                    top_n = hits.Count
-                },
-                ct);
+            using var rerankRequest = new HttpRequestMessage(HttpMethod.Post, RetrievalClient.SafeUri(config["Reranker:BaseUrl"]!.TrimEnd('/') + "/rerank"));
+            if (!string.IsNullOrWhiteSpace(config["Reranker:ApiKey"]))
+            {
+                rerankRequest.Headers.Authorization = new("Bearer", config["Reranker:ApiKey"]);
+            }
+            var rerankBody = new Dictionary<string, object?>
+            {
+                ["model"] = config["Reranker:Model"],
+                ["query"] = request.Query,
+                ["documents"] = texts,
+                ["top_n"] = hits.Count
+            };
+            if (config.GetValue<bool?>("Reranker:RawScores") is { } rawScores)
+            {
+                rerankBody["raw_scores"] = rawScores;
+            }
+            rerankRequest.Content = JsonContent.Create(rerankBody);
+            using var reranked = await client.Inference.SendAsync(rerankRequest, ct);
             if (RetrievalClient.RequireSuccess(reranked).Error is { } responseError2)
             {
                 return new(responseError2);
             }
-            using var data = await JsonDocument.ParseAsync(await reranked.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
             var scores = new Dictionary<int, double>();
-            foreach (var item in data.RootElement.GetProperty("results").EnumerateArray())
+            var invalid = new Error("Reranker returned invalid document indices or scores.", ErrorSource.External, ErrorType.Undefined) { HttpStatusCode = HttpStatusCode.BadGateway };
+            try
             {
-                var index = item.GetProperty("index").GetInt32();
-                var score = item.GetProperty("relevance_score").GetDouble();
-                if (index < 0 ||
-                    index >= hits.Count ||
-                    !double.IsFinite(score) ||
-                    !scores.TryAdd(index, score))
+                using var data = await JsonDocument.ParseAsync(await reranked.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+                if (data.RootElement.ValueKind != JsonValueKind.Object ||
+                    !data.RootElement.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
                 {
-                    return new(new Error("Reranker returned invalid document indices or scores.", ErrorSource.External, ErrorType.Undefined) { HttpStatusCode = HttpStatusCode.BadGateway });
+                    return new(invalid);
                 }
+                foreach (var item in results.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object ||
+                        !item.TryGetProperty("index", out var position) || position.ValueKind != JsonValueKind.Number ||
+                        !position.TryGetInt32(out var index) || index < 0 || index >= hits.Count ||
+                        !item.TryGetProperty("relevance_score", out var relevance) || relevance.ValueKind != JsonValueKind.Number ||
+                        !relevance.TryGetDouble(out var score) || !double.IsFinite(score) || !scores.TryAdd(index, score))
+                    {
+                        return new(invalid);
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                return new(invalid);
             }
 
             if (scores.Count != hits.Count)
