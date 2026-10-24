@@ -209,6 +209,77 @@ public sealed class InferenceContractTests
         Assert.DoesNotContain("synthetic-private-key", ranked.Error.Title);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task QdrantSearchSerializesUtcZForEquivalentOffsetInstantsAndPreservesScope(bool dense, bool publicOnly)
+    {
+        var config = Config();
+        if (!dense)
+        {
+            config["Embeddings:BaseUrl"] = null;
+        }
+        var companyId = Guid.Parse("11111111-1111-4111-8111-111111111111");
+        var payloads = new List<string>();
+        using var http = new HttpClient(new Handler(async request =>
+        {
+            if (request.RequestUri!.Host == "embedding.fixture")
+            {
+                return Json(new { data = new[] { new { index = 0, embedding = Vector(1) } } });
+            }
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json(new { status = "ok" });
+            }
+            Assert.Equal("/collections/fixture/points/query", request.RequestUri.AbsolutePath);
+            Assert.Equal("application/json", request.Content!.Headers.ContentType!.MediaType);
+            var payload = await request.Content.ReadAsStringAsync();
+            payloads.Add(payload);
+            Assert.DoesNotContain("\\u002B", payload);
+            using var json = JsonDocument.Parse(payload);
+            JsonElement[] branches = dense ? json.RootElement.GetProperty("prefetch").EnumerateArray().ToArray() : [json.RootElement];
+            Assert.Equal(dense ? 2 : 1, branches.Length);
+            foreach (var branch in branches)
+            {
+                var must = branch.GetProperty("filter").GetProperty("must");
+                Assert.Equal(publicOnly ? 3 : 2, must.GetArrayLength());
+                Assert.Equal("knownAt", must[0].GetProperty("key").GetString());
+                var bound = must[0].GetProperty("range").GetProperty("lte").GetString();
+                Assert.Equal("2026-10-24T08:00:00.0000000Z", bound);
+                Assert.Equal(Time, DateTimeOffset.Parse(bound!));
+                if (publicOnly)
+                {
+                    Assert.Equal("kind", must[1].GetProperty("key").GetString());
+                    Assert.Equal("market", must[1].GetProperty("match").GetProperty("value").GetString());
+                    Assert.Equal("companyIds", must[2].GetProperty("is_empty").GetProperty("key").GetString());
+                }
+                else
+                {
+                    var scopes = must[1].GetProperty("should");
+                    Assert.Equal(2, scopes.GetArrayLength());
+                    Assert.Equal("companyIds", scopes[0].GetProperty("key").GetString());
+                    Assert.Equal(companyId.ToString("D"), scopes[0].GetProperty("match").GetProperty("value").GetString());
+                    var market = scopes[1].GetProperty("must");
+                    Assert.Equal(2, market.GetArrayLength());
+                    Assert.Equal("kind", market[0].GetProperty("key").GetString());
+                    Assert.Equal("market", market[0].GetProperty("match").GetProperty("value").GetString());
+                    Assert.Equal("companyIds", market[1].GetProperty("is_empty").GetProperty("key").GetString());
+                }
+            }
+            return Json(new { result = new { points = Array.Empty<object>() } });
+        }));
+        using var company = new CompanyKnowledgeFixture();
+        var search = new SearchService(Client(http, config), null!, config, new Materials([]), company.Client);
+        foreach (var asOf in new[] { Time, Time.ToOffset(TimeSpan.FromMinutes(330)) })
+        {
+            await search.Search(new("synthetic query", asOf, CompanyId: publicOnly ? null : companyId, PublicOnly: publicOnly), CancellationToken.None).RequireContentAsync();
+        }
+        Assert.Equal(2, payloads.Count);
+        Assert.Equal(payloads[0], payloads[1]);
+    }
+
     private static ConfigurationManager Config() => new()
     {
         ["Qdrant:Collection"] = "fixture",
