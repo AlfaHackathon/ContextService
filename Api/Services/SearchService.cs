@@ -49,7 +49,7 @@ public sealed class SearchService
                 key = "knownAt",
                 range = new
                 {
-                    lte = request.AsOf.ToUniversalTime().ToString("O")
+                    lte = request.AsOf.UtcDateTime.ToString("O")
                 }
             }
         };
