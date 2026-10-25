@@ -10,6 +10,7 @@ namespace ContextService.Controllers;
 public sealed class SearchController(SearchService search) : BaseController
 {
     [HttpPost]
+    [ProducesResponseType(typeof(SearchResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> Search([FromBody] SearchRequest request, CancellationToken ct) => OkOrProblem<SearchResponse>(await search.Search(request, ct));
     [HttpPost("sync")]
     public async Task<IActionResult> Sync(CancellationToken ct) => OkOrProblem(await search.Sync(ct));

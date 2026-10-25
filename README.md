@@ -246,3 +246,13 @@ ContextService определяет прежние SHA-идентификато�
 Размер модельного контекста, окна и source-coverage остаются ответственностью AgentService.
 
 Material version может включать optional `provenance={acquisition,sourceUrl,retrievedAt,textCompleteness,originVersionId,locator}`. Acquisition: `uploaded`, `event_payload`, `news_service`; полнота: `full`, `lead`, `excerpt`, `unknown`. Для загруженного локального PDF укажите uploaded/excerpt и страницу/OCR в locator: это не результат интернет-поиска. RetrievedAt не может быть позже knownAt; ссылка допускает только HTTP(S) без credentials. Для news_service требуется тот же originVersionId, что и versionId проекции; оригинальные версии не перенумеровываются ContextService. Получение таких оригиналов требует реального upstream контракта — существующий parser его пока не предоставляет. Исторические записи без provenance остаются без него; null не меняет старый canonical hash. Изменение метаданных существующей версии запрещено как изменение текста.
+
+## Swagger / OpenAPI
+
+Opt in with `Swagger__Enabled=true` (`Swagger:Enabled` in configuration), including Production.
+Default is disabled. UI: `/context-service/swagger/index.html`; OpenAPI: `/context-service/swagger/v1/swagger.json`.
+Swagger UI assets are served locally by the existing Swashbuckle dependency of `AlfaHackaton.Controllers`; no CDN or new package is used.
+The specification is generated from controller routes and request contracts. Internal operations are tagged and require `X-Internal-Secret`; a user Bearer token does not authorize them.
+Some `IActionResult` responses have no declared payload metadata: consult their contracts; an absent response schema is not an empty-result guarantee.
+No public insight/source facade, network route/port, authentication, or CORS policy is added. Existing internal middleware still enforces access.
+Only enable docs on an intended existing ingress/internal origin; this flag does not publish the service or change gateway routing. Do not embed credentials in frontend code or specs.

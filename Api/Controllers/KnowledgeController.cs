@@ -11,6 +11,7 @@ namespace ContextService.Controllers;
 public sealed class KnowledgeController(CompanyKnowledgeClient knowledge) : BaseController
 {
     [HttpPost("companies")]
+    [ProducesResponseType(typeof(CompanyProfile), StatusCodes.Status200OK)]
     public async Task<IActionResult> SaveCompany([FromBody] CompanyProfile request, CancellationToken ct) => OkOrProblem<CompanyProfile>(await knowledge.SaveCompany(request, ct));
     [HttpGet("companies")]
     public async Task<IActionResult> Companies([FromQuery, BindRequired] DateTimeOffset asOf, CancellationToken ct)
@@ -22,6 +23,7 @@ public sealed class KnowledgeController(CompanyKnowledgeClient knowledge) : Base
         });
     }
     [HttpPost("groups")]
+    [ProducesResponseType(typeof(GroupProfile), StatusCodes.Status200OK)]
     public async Task<IActionResult> SaveGroup([FromBody] GroupProfile request, CancellationToken ct) => OkOrProblem<GroupProfile>(await knowledge.SaveGroup(request, ct));
     [HttpGet("groups")]
     public async Task<IActionResult> Groups([FromQuery, BindRequired] DateTimeOffset asOf, CancellationToken ct)
@@ -33,8 +35,10 @@ public sealed class KnowledgeController(CompanyKnowledgeClient knowledge) : Base
         });
     }
     [HttpGet("groups/{groupId}")]
+    [ProducesResponseType(typeof(GroupExpansion), StatusCodes.Status200OK)]
     public async Task<IActionResult> Expand([FromRoute] string groupId, [FromQuery, BindRequired] DateTimeOffset asOf, CancellationToken ct) => OkOrProblem<GroupExpansion>(await knowledge.Expand(groupId, asOf, ct));
     [HttpPost("roles")]
+    [ProducesResponseType(typeof(RoleProfile), StatusCodes.Status200OK)]
     public async Task<IActionResult> SaveRole([FromBody] RoleProfile request, CancellationToken ct) => OkOrProblem<RoleProfile>(await knowledge.SaveRole(request, ct));
     [HttpGet("roles")]
     public async Task<IActionResult> Roles([FromQuery, BindRequired] DateTimeOffset asOf, CancellationToken ct)
@@ -46,7 +50,9 @@ public sealed class KnowledgeController(CompanyKnowledgeClient knowledge) : Base
         });
     }
     [HttpPost("people")]
+    [ProducesResponseType(typeof(PersonProfile), StatusCodes.Status200OK)]
     public async Task<IActionResult> SavePerson([FromBody] PersonProfile request, CancellationToken ct) => OkOrProblem<PersonProfile>(await knowledge.SavePerson(request, ct));
     [HttpGet("people/{personId}")]
+    [ProducesResponseType(typeof(PersonProfile), StatusCodes.Status200OK)]
     public async Task<IActionResult> Person([FromRoute] string personId, [FromQuery, BindRequired] DateTimeOffset asOf, CancellationToken ct) => OkOrProblem<PersonProfile>(await knowledge.Person(personId, asOf, ct));
 }
