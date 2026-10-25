@@ -16,6 +16,8 @@ public static class ContextSql
     public static string ContextMaterials => Get(nameof(ContextMaterials));
     public static string NewsSearch => Get(nameof(NewsSearch));
     public static string NewsSearchDeadline => Get(nameof(NewsSearchDeadline));
+    public static string CompanyMaterialList => Get(nameof(CompanyMaterialList));
+    public static string CompanyMaterialListDeadline => Get(nameof(CompanyMaterialListDeadline));
     public static string KnownMaterials => Get(nameof(KnownMaterials));
     public static string FindMaterial => Get(nameof(FindMaterial));
     public static string ChangeWatermark => Get(nameof(ChangeWatermark));
