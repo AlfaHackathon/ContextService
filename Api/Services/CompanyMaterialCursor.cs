@@ -55,4 +55,3 @@ internal static partial class CompanyMaterialCursor
     [GeneratedRegex("^[A-Za-z0-9_-]+$", RegexOptions.CultureInvariant)]
     private static partial Regex CursorPattern();
 }
-
