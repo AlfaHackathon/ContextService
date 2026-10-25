@@ -27,9 +27,14 @@ public sealed class CompanyMaterialListRepository(IDapperContext context) : ICom
         }
         var rows = await transaction.ListOrEmpty<string>(new QueryObject(ContextSql.CompanyMaterialList, new
         {
-            company = companyId.ToString("D"), at = asOf.UtcTicks, bank = bankProfileId, snapshot,
-            take = limit + 1, after = continuation?.After.KnownTicks,
-            material = continuation?.After.MaterialId, version = continuation?.After.VersionId
+            company = companyId.ToString("D"),
+            at = asOf.UtcTicks,
+            bank = bankProfileId,
+            snapshot,
+            take = limit + 1,
+            after = continuation?.After.KnownTicks,
+            material = continuation?.After.MaterialId,
+            version = continuation?.After.VersionId
         }));
         ct.ThrowIfCancellationRequested();
         var items = rows.Select(json => JsonSerializer.Deserialize<CompanyMaterialSummary>(json, ContextJson.Options)
