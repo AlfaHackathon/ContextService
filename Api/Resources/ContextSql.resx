@@ -107,4 +107,41 @@ ORDER BY m.material_id,m.version_id LIMIT 129</value>
   <data name="UpsertProjectionMark" xml:space="preserve">
     <value>INSERT INTO search_projection VALUES(@p,@i,@h) ON CONFLICT(pipeline,item_id) DO UPDATE SET content_hash=excluded.content_hash</value>
   </data>
-<data name="WriteLock"><value>SET LOCAL lock_timeout = '5s'; SELECT pg_advisory_xact_lock(319264381)</value></data><data name="ReadLock"><value>SET LOCAL lock_timeout = '5s'; SELECT pg_advisory_xact_lock_shared(319264381)</value></data></root>
+<data name="WriteLock"><value>SET LOCAL lock_timeout = '5s'; SELECT pg_advisory_xact_lock(319264381)</value></data><data name="ReadLock"><value>SET LOCAL lock_timeout = '5s'; SELECT pg_advisory_xact_lock_shared(319264381)</value></data>  <data name="NewsSearchDeadline" xml:space="preserve">
+    <value>SET TRANSACTION READ ONLY; SET LOCAL statement_timeout='2000ms'</value>
+  </data>
+  <data name="NewsSearch" xml:space="preserve">
+    <value>WITH RECURSIVE lineage AS MATERIALIZED (
+    SELECT material_id, version_id, corrects_version_id FROM material_versions
+    WHERE kind='news' AND known_at_ticks&lt;=@at
+), permitted AS MATERIALIZED (
+    SELECT m.material_id, m.version_id, m.known_at_ticks, m.corrects_version_id,
+        m.payload_json::jsonb AS payload
+    FROM material_versions m
+    WHERE m.kind='news' AND m.known_at_ticks&lt;=@at
+        AND NOT EXISTS (SELECT 1 FROM material_companies c
+            WHERE c.material_id=m.material_id AND c.version_id=m.version_id)
+        AND m.payload_json::jsonb-&gt;&gt;'kind'='news'
+        AND m.payload_json::jsonb-&gt;'companyIds'='[]'::jsonb
+        AND m.payload_json::jsonb-&gt;'bankProfileIds'='[]'::jsonb
+), superseded(material_id,version_id) AS (
+    SELECT material_id,corrects_version_id FROM permitted WHERE corrects_version_id IS NOT NULL
+    UNION
+    SELECT l.material_id,l.corrects_version_id FROM lineage l
+    JOIN superseded s ON s.material_id=l.material_id AND s.version_id=l.version_id
+    WHERE l.corrects_version_id IS NOT NULL
+), heads AS (
+    SELECT p.* FROM permitted p
+    WHERE NOT EXISTS (SELECT 1 FROM superseded s
+        WHERE s.material_id=p.material_id AND s.version_id=p.version_id)
+), latest AS (
+    SELECT DISTINCT ON (material_id COLLATE "C") * FROM heads
+    ORDER BY material_id COLLATE "C", known_at_ticks DESC, version_id COLLATE "C" DESC
+)
+SELECT (payload-'text')::text FROM latest
+WHERE strpos(lower(payload-&gt;&gt;'title'),lower(@query))&gt;0
+    OR strpos(lower(payload-&gt;&gt;'text'),lower(@query))&gt;0
+ORDER BY known_at_ticks DESC, material_id COLLATE "C", version_id COLLATE "C"
+LIMIT @limit</value>
+  </data>
+</root>

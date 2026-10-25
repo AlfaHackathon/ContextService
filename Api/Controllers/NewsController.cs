@@ -7,8 +7,15 @@ namespace ContextService.Controllers;
 
 [ApiController]
 [Route("context-service/internal/news")]
-public class NewsController(NewsAdmissionService admission, NewsContextService news) : BaseController
+public class NewsController(NewsAdmissionService admission, NewsContextService news, NewsSearchService search) : BaseController
 {
+    [HttpPost("search")]
+    [RequestSizeLimit(16384)]
+    public async Task<IActionResult> SearchAsync([FromBody] NewsSearchRequest request, CancellationToken ct)
+    {
+        return OkOrProblem(await search.Search(request, ct));
+    }
+
     [HttpPost("admit")]
     public async Task<IActionResult> AdmitAsync([FromBody] NewsAdmissionRequest request, CancellationToken ct)
     {

@@ -62,6 +62,77 @@ loopback HTTP через общий пакет, включая JSON bytes, heade
 с перезапуском и без, частичную потерю/устаревшие hashes, отсутствие повторных embeddings
 для исправных точек и повтор после отказа Qdrant на настоящем PostgreSQL.
 
+## Каталог admitted public news
+
+`POST /context-service/internal/news/search` — внутренний read-only lexical endpoint
+для `ClientAssistant` AgentService `b4791f1e5dd609c55379630140a8af5c69674ef2`.
+Требует существующий `X-Internal-Secret`; public routes/permissions не добавляются.
+
+```json
+{"query":"ключевая ставка","asOf":"2026-10-25T10:00:00.0000001Z","limit":6}
+```
+
+Strict JSON request: query nonempty после trim, raw length <=2000 UTF-16 units;
+asOf — explicit ISO instant с offset/Z и максимум 7 fractional digits; limit 1..6
+(default 6). Company/user IDs, URL acquisition и произвольный scope запрещены.
+Body ограничен 16 KiB. Ответ `{asOf,exhaustive:false,hits:[...]}`; hit — canonical
+MaterialVersion metadata **без text**, включая точные IDs/hash, dates и provenance.
+Отсутствующий provenance остаётся absent/unknown; lead/excerpt не повышаются до full.
+
+SQL выбирает только known_at_ticks<=asOf, kind=news и пустые companyIds/bankProfileIds;
+проверяет также relational company scope. Public correction supersedes public ancestors,
+в том числе через непубличную промежуточную версию; скрытая версия не становится hit.
+Из оставшихся permitted heads выбирается один на material: knownAt DESC, versionId
+ordinal DESC при равенстве. Затем выполняется case-insensitive literal substring
+matching по title/text: `%`, `_` и SQL punctuation — данные, не wildcard/SQL.
+Выбор current version происходит **до** matching, поэтому совпадающий устаревший текст
+не возвращается вместо новой версии. Итоговый порядок: knownAt DESC, materialId,
+versionId в PostgreSQL `C` collation; максимум limit hits. Неполный каталог не означает
+отсутствия влияния новости на компанию.
+
+Поиск не вызывает Qdrant, embedding/rerank, parser, URL acquisition или агента.
+Одна read-only транзакция использует server statement_timeout=2000ms. Org DB API не
+передаёт CancellationToken внутрь query: cancellation проверяется до/после, а оставшаяся
+SQL-работа ограничивается server timeout. Ошибка/timeout не превращаются в пустой успех.
+Материалы/журналы не изменяются. Используются существующие таблицы и kind/asOf index;
+новых migrations/indexes нет.
+
+`/internal/news/resolve` остаётся прежним exact-version чтением. Agent привязывает hit
+к opaque company-bound newsHandle, повторно проверяет scope/version/hash/asOf при read
+и передаёт selected version прежнему анализатору. Parser lead observation hash не
+является canonical Context version/hash. Каталог не выполняет source admission.
+
+### Проверка и передача deployment executor
+
+Native gates требуют .NET 10, доступ к org GitHub Packages через штатный process
+credential из раздела restore и **изолированный synthetic PostgreSQL** с CREATE DATABASE.
+В этой cloud-сессии установлен SDK 10.0.402, но restore org feed блокируется proxy HTTP
+403. Поэтому API build, xUnit/MVC tests и publish здесь **не подтверждены**. Ни feed
+mapping, ни package versions не изменялись. Отдельно проверены embedded SQL на настоящем
+локальном PostgreSQL и native DTO serialization/wire compatibility с Agent; это не
+замена native gates:
+
+```sh
+dotnet restore ContextService.slnx --configfile NuGet.config
+dotnet build ContextService.slnx -c Release --no-restore
+# CONTEXT_TEST_POSTGRES задаётся только на synthetic instance: тесты создают/удаляют БД.
+dotnet test ContextService.slnx -c Release --no-restore
+dotnet publish Api/ContextService.Api.csproj -c Release --no-restore -o ./publish
+```
+
+`NewsSearchValidationTests`, `NewsSearchTests` и новый MVC case проверяют strict input,
+точные ticks, latest-before-match, private/bank/future scopes, stable limits, literal
+queries, provenance, auth и совместимость exact read. Все inference tests используют
+локальные fake HTTP dependencies; живые модели для этого endpoint не нужны.
+
+Deployment выполнять только после native gates. Prerequisites: прежняя Context DB и
+internal-secret wiring, source admission реально наполненного каталога, Agent commit
+b4791f1 для новых tools. Рекомендуемый порядок — Context endpoint, затем Agent tools;
+parser deployment не входит в этот commit. Изменение additive, без data migration.
+Rollback Context возвращает Agent search к explicit unavailable (404 dependency), а
+прежние Context/Agent APIs остаются доступны; rollback Agent просто убирает новые tools.
+Данные и immutable revisions не требуют отката. Cloud deploy/merge не выполнялись.
+
 ## Версии, добор и события
 
 `POST /context-service/internal/context/retrieve` принимает `scope=company|market` и до шести

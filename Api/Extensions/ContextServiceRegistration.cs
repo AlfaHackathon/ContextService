@@ -41,6 +41,8 @@ public static class ContextServiceRegistration
         services.AddSingleton<IMaterialService>(sp => sp.GetRequiredService<MaterialService>());
         services.AddSingleton<NewsAdmissionService>();
         services.AddSingleton<NewsContextService>();
+        services.AddSingleton<INewsSearchRepository, NewsSearchRepository>();
+        services.AddSingleton<NewsSearchService>();
         services.AddAlfaHttpClient(new CompanyHttpSettings
         {
             BaseAddress = string.IsNullOrWhiteSpace(configuration["CompanyService:BaseUrl"]) ? "" : RetrievalClient.SafeUri(configuration["CompanyService:BaseUrl"]!.TrimEnd('/') + "/").ToString(),

@@ -73,4 +73,41 @@ public sealed class MvcContractTests : PostgresTestBase
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         Assert.Equal("Material version was not found.", (await missing.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errorMessage").GetString());
     }
+
+    [Fact]
+    public async Task NewsCatalogRequiresInternalAuthAndReturnsCanonicalMetadataWithoutText()
+    {
+        await using var app = await Start();
+        using var client = app.GetTestClient();
+        const string route = "/context-service/internal/news/search";
+        var request = new { query = "ставка", asOf = "2026-10-25T10:00:00.0000001Z", limit = 6 };
+        using var denied = await client.PostAsJsonAsync(route, request);
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        client.DefaultRequestHeaders.Add("X-Internal-Secret", "synthetic-mvc-secret");
+        using var admitted = await client.PostAsJsonAsync("/context-service/internal/news/admit", new
+        {
+            source = "synthetic", externalId = "news-catalog", title = "Ставка", text = "Stored lead only",
+            publishedAt = request.asOf, knownAt = request.asOf, textCompleteness = "lead"
+        });
+        Assert.Equal(HttpStatusCode.OK, admitted.StatusCode);
+        using var response = await client.PostAsJsonAsync(route, request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(result.GetProperty("exhaustive").GetBoolean());
+        var hit = Assert.Single(result.GetProperty("hits").EnumerateArray());
+        Assert.False(hit.TryGetProperty("text", out _));
+        Assert.Equal("lead", hit.GetProperty("provenance").GetProperty("textCompleteness").GetString());
+        using var read = await client.PostAsJsonAsync("/context-service/internal/news/resolve", new
+        {
+            newsMaterialId = hit.GetProperty("materialId").GetString(),
+            newsVersionId = hit.GetProperty("versionId").GetString(), asOf = request.asOf
+        });
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        var original = await read.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(hit.GetProperty("contentHash").GetString(), original.GetProperty("contentHash").GetString());
+        Assert.Equal("Stored lead only", original.GetProperty("text").GetString());
+        using var invalid = await client.PostAsJsonAsync(route, new { query = "news", asOf = request.asOf, companyId = Guid.NewGuid() });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+    }
+
 }
