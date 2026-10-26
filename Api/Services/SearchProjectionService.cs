@@ -58,6 +58,18 @@ public sealed class SearchProjectionService : IDisposable
                     p.SourceRefs));
             }
 
+            var bankProfiles = await knowledge.BankProfileVersions(ct);
+            if (bankProfiles.Error is { } bankError)
+            {
+                return new(bankError);
+            }
+            foreach (var bank in bankProfiles.Content!)
+            {
+                entries.Add(new IndexEntry(RetrievalEncoding.Stable("bank-profile", bank.CompanyId.ToString("D"), bank.RevisionId),
+                    CompanyBankProfileSearchText.Build(bank), bank.KnownAt, [bank.CompanyId], "bank_profile", null,
+                    bank.RevisionId, RetrievalEncoding.Hash(JsonSerializer.Serialize(bank, ContextJson.Options)), bank.SourceRefs));
+            }
+
             foreach (var m in (await materials.ListKnown(DateTimeOffset.MaxValue)).Where(x => x.Kind != "news"))
             {
                 for (var start = 0; start < m.Text.Length; start += 1500)
