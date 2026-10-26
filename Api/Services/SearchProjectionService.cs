@@ -65,12 +65,14 @@ public sealed class SearchProjectionService : IDisposable
             }
             foreach (var bank in bankProfiles.Content!)
             {
+                // Imported CSV is declared source. Projection is a separately controlled action.
+                if (bank.RevisionId.StartsWith("csv-", StringComparison.Ordinal) && !config.GetValue<bool>("CsvImport:ProjectionEnabled")) continue;
                 entries.Add(new IndexEntry(RetrievalEncoding.Stable("bank-profile", bank.CompanyId.ToString("D"), bank.RevisionId),
                     CompanyBankProfileSearchText.Build(bank), bank.KnownAt, [bank.CompanyId], "bank_profile", null,
                     bank.RevisionId, RetrievalEncoding.Hash(JsonSerializer.Serialize(bank, ContextJson.Options)), bank.SourceRefs));
             }
 
-            foreach (var m in (await materials.ListKnown(DateTimeOffset.MaxValue)).Where(x => x.Kind != "news"))
+            foreach (var m in (await materials.ListKnown(DateTimeOffset.MaxValue)).Where(x => x.Kind is "company" or "market"))
             {
                 for (var start = 0; start < m.Text.Length; start += 1500)
                 {

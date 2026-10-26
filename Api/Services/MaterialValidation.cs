@@ -22,9 +22,9 @@ public static class MaterialValidation
         {
             return new(sourceIdError);
         }
-        if (r.Kind is not ("news" or "company" or "market"))
+        if (r.Kind is not ("news" or "company" or "market" or "declared_source"))
         {
-            return new(new Error("kind must be news, company or market.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
+            return new(new Error("kind must be news, company, market or declared_source.", ErrorSource.Client, ErrorType.CorruptedInfo) { HttpStatusCode = HttpStatusCode.BadRequest });
         }
 
         var titleOnlyEvent = r.Kind == "news" &&

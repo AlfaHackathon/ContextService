@@ -195,7 +195,7 @@ public sealed class SearchService
                         bank = found.Content!;
                         bankProfiles.Add(id, bank);
                     }
-                    if (bank is not null && bank.CompanyId == id && bank.KnownAt <= request.AsOf &&
+                    if (bank is not null && (!bank.RevisionId.StartsWith("csv-", StringComparison.Ordinal) || config.GetValue<bool>("CsvImport:ProjectionEnabled")) && bank.CompanyId == id && bank.KnownAt <= request.AsOf &&
                         bank.SourceId == "company-bank-profile" &&
                         p.GetProperty("versionId").GetString() == bank.RevisionId &&
                         p.GetProperty("hash").GetString() == RetrievalEncoding.Hash(JsonSerializer.Serialize(bank, ContextJson.Options)))
@@ -308,8 +308,8 @@ public sealed class SearchService
             null);
     }
 
-    private static bool CanAccessMaterial(MaterialVersion material, SearchRequest request) => request.CompanyId.HasValue
+    private static bool CanAccessMaterial(MaterialVersion material, SearchRequest request) => material.Kind != "declared_source" && (request.CompanyId.HasValue
         ? material.CompanyIds.Contains(request.CompanyId.Value) ||
             (material.Kind == "market" && material.CompanyIds.Length == 0)
-        : request.PublicOnly && material.Kind == "market" && material.CompanyIds.Length == 0;
+        : request.PublicOnly && material.Kind == "market" && material.CompanyIds.Length == 0);
 }
