@@ -30,7 +30,7 @@ public sealed class CompanyKnowledgeClient(RetrievalTransport<CompanyHttpSetting
 
     public async Task<Result<CompanyBankProfile>> BankProfile(Guid companyId, DateTimeOffset at, CancellationToken ct = default)
     {
-        var result = await Send<CompanyBankProfile>($"{companyId:D}?asOf={At(at)}", ct: ct, prefix: BankPrefix);
+        var result = await Send<CompanyBankProfile>($"{companyId:D}?asOf={At(at)}", prefix: BankPrefix, ct: ct);
         if (result.Error is { } error)
         {
             return new(error);
@@ -48,7 +48,7 @@ public sealed class CompanyKnowledgeClient(RetrievalTransport<CompanyHttpSetting
         {
             ct.ThrowIfCancellationRequested();
             var page = await Send<CompanyBankProfilePage>("versions?limit=100" +
-                (after is null ? "" : "&after=" + Uri.EscapeDataString(after)), ct: ct, prefix: BankPrefix);
+                (after is null ? "" : "&after=" + Uri.EscapeDataString(after)), prefix: BankPrefix, ct: ct);
             if (page.Error is { } error)
             {
                 return new(error);
@@ -79,7 +79,7 @@ public sealed class CompanyKnowledgeClient(RetrievalTransport<CompanyHttpSetting
         HttpStatusCode = HttpStatusCode.BadGateway
     };
 
-    private async Task<Result<T>> Send<T>(string path, object? value = null, string? field = null, CancellationToken ct = default, string prefix = Prefix)
+    private async Task<Result<T>> Send<T>(string path, object? value = null, string? field = null, string prefix = Prefix, CancellationToken ct = default)
     {
         if (transport.BaseAddress is null)
         {
