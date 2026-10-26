@@ -63,6 +63,10 @@ internal sealed class CompanyKnowledgeFixture : IDisposable
     private sealed class EmptyHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"companies\":[]}") });
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(request.RequestUri!.AbsolutePath == "/company-service/internal/bank-profiles/versions"
+                    ? "{\"profiles\":[],\"nextCursor\":null}" : "{\"companies\":[]}")
+            });
     }
 }

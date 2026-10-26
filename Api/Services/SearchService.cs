@@ -82,10 +82,10 @@ public sealed class SearchService
         {
             must.Add(new
             {
-                key = "kind",
-                match = new
+                should = new object[]
                 {
-                    value = "profile"
+                    new { key = "kind", match = new { value = "profile" } },
+                    new { key = "kind", match = new { value = "bank_profile" } }
                 }
             });
         }
@@ -155,6 +155,7 @@ public sealed class SearchService
             return new(companyError);
         }
         var profiles = companyProfiles.Content!.ToDictionary(x => x.CompanyId);
+        var bankProfiles = new Dictionary<Guid, CompanyBankProfile?>();
         var knownVersions = (request.PublicOnly || request.CompanyId.HasValue)
             ? (await materials.ListKnown(request.AsOf))
                 .Where(m => CanAccessMaterial(m, request))
@@ -171,7 +172,40 @@ public sealed class SearchService
             var kind = p.GetProperty("kind").GetString()!;
             var refs = p.GetProperty("sourceRefs").Deserialize<SourceReference[]>(ContextJson.Options)!;
             var ids = p.GetProperty("companyIds").EnumerateArray().Select(x => Guid.Parse(x.GetString()!)).ToArray();
-            if (kind == "profile")
+            if (kind == "bank_profile")
+            {
+                if (request.PublicOnly && !request.CompanyId.HasValue)
+                {
+                    continue;
+                }
+                foreach (var id in ids.Where(id => !request.CompanyId.HasValue || id == request.CompanyId.Value))
+                {
+                    if (!bankProfiles.TryGetValue(id, out var bank))
+                    {
+                        var found = await knowledge.BankProfile(id, request.AsOf, ct);
+                        if (found.Error is { } error)
+                        {
+                            if (error.HttpStatusCode == HttpStatusCode.NotFound)
+                            {
+                                bankProfiles.Add(id, null);
+                                continue;
+                            }
+                            return new(error);
+                        }
+                        bank = found.Content!;
+                        bankProfiles.Add(id, bank);
+                    }
+                    if (bank is not null && bank.CompanyId == id && bank.KnownAt <= request.AsOf &&
+                        bank.SourceId == "company-bank-profile" &&
+                        p.GetProperty("versionId").GetString() == bank.RevisionId &&
+                        p.GetProperty("hash").GetString() == RetrievalEncoding.Hash(JsonSerializer.Serialize(bank, ContextJson.Options)))
+                    {
+                        hits.Add(new(id, bank.SourceRefs, row.GetProperty("score").GetDouble(), null, kind, null, bank.RevisionId));
+                        texts.Add(CompanyBankProfileSearchText.Build(bank));
+                    }
+                }
+            }
+            else if (kind == "profile")
             {
                 foreach (var id in ids)
                 {
