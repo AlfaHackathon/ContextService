@@ -256,3 +256,52 @@ The specification is generated from controller routes and request contracts. Int
 Some `IActionResult` responses have no declared payload metadata: consult their contracts; an absent response schema is not an empty-result guarantee.
 No public insight/source facade, network route/port, authentication, or CORS policy is added. Existing internal middleware still enforces access.
 Only enable docs on an intended existing ingress/internal origin; this flag does not publish the service or change gateway routing. Do not embed credentials in frontend code or specs.
+
+## Internal company materials catalog
+
+`GET /context-service/internal/companies/{companyId:guid}/materials?asOf=<ISO timestamp>&limit=20&cursor=<opaque>&bankProfileId=<optional>`
+requires the existing `X-Internal-Secret`. This is a service-to-service building block for
+CompanyService's public facade, not a public Context route. The trusted caller resolves
+current membership and passes its bank bridge; frontend/model arguments cannot grant a
+company or bank scope. `asOf` requires an explicit `Z`/offset and preserves up to seven
+fractional digits. `limit` is 1..20. On continuation, keep the same company, exact instant
+and optional bank bridge; page size may change.
+
+The response is `{companyId,asOf,items,nextCursor,coverage:"canonical_changes_only"}`.
+Each item contains only `{materialId,versionId,sourceId,kind,title,knownAt,publishedAt,
+correctsVersionId,contentHash,textCompleteness,latestVersionCount,provenance?}`.
+No original text, other company IDs or bank scopes are returned. Missing provenance stays
+missing, with `textCompleteness:"unknown"`. Existing exact-version GET and material admission
+remain the read/write operations for the selected original.
+
+Selection requires `kind=company` and an explicit target-company scope in both canonical
+scope rows and the stored payload. With no bank bridge only `bankProfileIds:[]` is eligible;
+with a bridge, untagged materials and materials explicitly tagged for that bridge are eligible.
+Public news, shared market materials and another company's documents are excluded.
+
+The first page takes the canonical shared-write lock and captures the change-feed watermark.
+The opaque cursor binds that exact watermark, company, bank bridge and `asOf`; later runtime
+admissions are excluded even if backdated. Only versions with a matching canonical material
+change at or before this watermark are included. Legacy/manual imports without such an event
+are conservatively excluded, explicitly indicated by `coverage:"canonical_changes_only"`.
+This is not a claim of complete real-world company knowledge or snapshot guarantees for
+out-of-band database edits. No automatic backfill is performed.
+
+Permitted corrections supersede their ancestors through the known, tracked correction chain.
+A hidden correction alone never suppresses a permitted version. Among surviving permitted
+heads, all versions at the latest `knownAt` for each material are retained; equal-time ambiguity
+is visible as `latestVersionCount>1`. Ordering is `knownAt DESC, materialId COLLATE "C" ASC,
+versionId COLLATE "C" ASC`; version ID is only a stable presentation tie-break, not chronology.
+Pagination is a SQL keyset with `limit+1` lookahead, independent of the 128-source evidence
+inventory. The read transaction has a two-second statement deadline; failures/cancellation
+are not returned as a successful empty catalog.
+
+Tests `CompanyMaterialListTests` and `CompanyMaterialsMvcTests` use repository fakes and the
+existing ASP.NET TestHost; they do not start a database or call inference. Native verification,
+when the organization's published packages are available:
+
+```sh
+dotnet test ContextService.slnx --no-restore --filter 'FullyQualifiedName~CompanyMaterialListTests|FullyQualifiedName~CompanyMaterialsMvcTests'
+dotnet test ContextService.slnx --no-restore
+dotnet publish Api/ContextService.Api.csproj -c Release --no-restore
+```

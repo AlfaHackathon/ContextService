@@ -144,4 +144,63 @@ WHERE strpos(lower(payload-&gt;&gt;'title'),lower(@query))&gt;0
 ORDER BY known_at_ticks DESC, material_id COLLATE "C", version_id COLLATE "C"
 LIMIT @limit</value>
   </data>
+  <data name="CompanyMaterialListDeadline" xml:space="preserve">
+    <value>SET TRANSACTION READ ONLY; SET LOCAL statement_timeout='2000ms'</value>
+  </data>
+  <data name="CompanyMaterialList" xml:space="preserve">
+    <value>WITH RECURSIVE permitted AS MATERIALIZED (
+    SELECT m.material_id,m.version_id,m.source_id,m.known_at_ticks,m.corrects_version_id,m.content_hash,
+        m.payload_json::jsonb AS payload
+    FROM material_versions m
+    WHERE m.kind='company' AND m.known_at_ticks&lt;=@at
+        AND EXISTS(SELECT 1 FROM material_companies c WHERE c.company_id=@company
+            AND c.material_id=m.material_id AND c.version_id=m.version_id)
+        AND m.payload_json::jsonb-&gt;&gt;'kind'='company'
+        AND m.payload_json::jsonb-&gt;'companyIds' @&gt; jsonb_build_array(CAST(@company AS text))
+        AND (m.payload_json::jsonb-&gt;'bankProfileIds'='[]'::jsonb
+            OR (CAST(@bank AS text) IS NOT NULL AND m.payload_json::jsonb-&gt;'bankProfileIds' @&gt; jsonb_build_array(CAST(@bank AS text))))
+        AND EXISTS(SELECT 1 FROM context_changes ch WHERE ch.category='material:company'
+            AND ch.entity_id=m.material_id AND ch.version_id=m.version_id AND ch.sequence&lt;=@snapshot)
+), lineage AS MATERIALIZED (
+    SELECT m.material_id,m.version_id,m.corrects_version_id
+    FROM material_versions m
+    WHERE m.kind='company' AND m.known_at_ticks&lt;=@at
+        AND m.material_id IN(SELECT material_id FROM permitted)
+        AND EXISTS(SELECT 1 FROM context_changes ch WHERE ch.category='material:company'
+            AND ch.entity_id=m.material_id AND ch.version_id=m.version_id AND ch.sequence&lt;=@snapshot)
+), superseded(material_id,version_id) AS (
+    SELECT material_id,corrects_version_id FROM permitted WHERE corrects_version_id IS NOT NULL
+    UNION
+    SELECT l.material_id,l.corrects_version_id FROM lineage l
+    JOIN superseded s ON s.material_id=l.material_id AND s.version_id=l.version_id
+    WHERE l.corrects_version_id IS NOT NULL
+), heads AS MATERIALIZED (
+    SELECT p.* FROM permitted p WHERE NOT EXISTS(SELECT 1 FROM superseded s
+        WHERE s.material_id=p.material_id AND s.version_id=p.version_id)
+), timed AS (
+    SELECT h.*,MAX(known_at_ticks) OVER(PARTITION BY material_id) AS latest_ticks FROM heads h
+), latest AS (
+    SELECT t.*,COUNT(*) OVER(PARTITION BY material_id) AS latest_count
+    FROM timed t WHERE t.known_at_ticks=t.latest_ticks
+)
+SELECT jsonb_build_object(
+    'materialId',material_id,'versionId',version_id,'sourceId',source_id,'kind','company',
+    'title',payload-&gt;'title','knownAt',payload-&gt;'knownAt','publishedAt',payload-&gt;'publishedAt',
+    'correctsVersionId',corrects_version_id,'contentHash',content_hash,
+    'textCompleteness',COALESCE(payload#&gt;&gt;'{provenance,textCompleteness}','unknown'),
+    'latestVersionCount',latest_count,
+    'provenance',CASE WHEN jsonb_typeof(payload-&gt;'provenance')='object' THEN jsonb_build_object(
+        'acquisition',payload#&gt;'{provenance,acquisition}',
+        'sourceUrl',payload#&gt;'{provenance,sourceUrl}',
+        'retrievedAt',payload#&gt;'{provenance,retrievedAt}',
+        'textCompleteness',payload#&gt;'{provenance,textCompleteness}',
+        'originVersionId',payload#&gt;'{provenance,originVersionId}',
+        'locator',payload#&gt;'{provenance,locator}') ELSE NULL END
+)::text FROM latest
+WHERE CAST(@after AS bigint) IS NULL OR known_at_ticks&lt;CAST(@after AS bigint)
+    OR (known_at_ticks=CAST(@after AS bigint)
+        AND (material_id COLLATE "C",version_id COLLATE "C")&gt;(CAST(@material AS text) COLLATE "C",CAST(@version AS text) COLLATE "C"))
+ORDER BY known_at_ticks DESC,material_id COLLATE "C",version_id COLLATE "C"
+LIMIT @take</value>
+  </data>
 </root>

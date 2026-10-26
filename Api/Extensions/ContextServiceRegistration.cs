@@ -43,6 +43,8 @@ public static class ContextServiceRegistration
         services.AddSingleton<NewsContextService>();
         services.AddSingleton<INewsSearchRepository, NewsSearchRepository>();
         services.AddSingleton<NewsSearchService>();
+        services.AddSingleton<ICompanyMaterialListRepository, CompanyMaterialListRepository>();
+        services.AddSingleton<CompanyMaterialListService>();
         services.AddAlfaHttpClient(new CompanyHttpSettings
         {
             BaseAddress = string.IsNullOrWhiteSpace(configuration["CompanyService:BaseUrl"]) ? "" : RetrievalClient.SafeUri(configuration["CompanyService:BaseUrl"]!.TrimEnd('/') + "/").ToString(),
